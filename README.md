@@ -50,7 +50,7 @@ A low-latency FluidSynth controller with real-time TUI, SoundFont browser, arpeg
 
 ```bash
 # NixOS / Nix
-nix run github:your-repo/fw16-synth
+nix run github:ALH477/fw16-synth
 
 # Development
 nix develop
@@ -204,7 +204,7 @@ Visual feedback in the TUI shows current position and values.
 ```nix
 # flake.nix
 {
-  inputs.fw16-synth.url = "github:your-repo/fw16-synth";
+  inputs.fw16-synth.url = "github:ALH477/fw16-synth";
 }
 
 # configuration.nix
