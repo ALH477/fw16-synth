@@ -1,5 +1,5 @@
 {
-  description = "FW16 Synth - FluidSynth controller using Framework 16 keyboard and touchpad";
+  description = "FW16 Synth - Professional FluidSynth controller for Framework 16";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -19,24 +19,29 @@
           pyfluidsynth
         ]);
 
-        fw16-synth = pkgs.writeShellApplication {
-          name = "fw16-synth";
-          runtimeInputs = [ 
-            pythonEnv 
-            pkgs.fluidsynth
-            pkgs.soundfont-fluid  # FluidR3 GM soundfont
-          ];
-          text = ''
-            # Default soundfont location
-            DEFAULT_SF="${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM.sf2"
+        # Main application
+        fw16-synth = pkgs.stdenv.mkDerivation {
+          pname = "fw16-synth";
+          version = "2.0.0";
+          src = ./.;
+          
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          
+          installPhase = ''
+            mkdir -p $out/bin $out/share/fw16-synth
+            cp fw16_synth.py $out/share/fw16-synth/
             
-            # Run with default soundfont if not specified
-            if [[ "$*" != *"--soundfont"* ]] && [[ "$*" != *"-s"* ]]; then
-              exec python3 ${./fw16_synth.py} --soundfont "$DEFAULT_SF" "$@"
-            else
-              exec python3 ${./fw16_synth.py} "$@"
-            fi
+            makeWrapper ${pythonEnv}/bin/python3 $out/bin/fw16-synth \
+              --add-flags "$out/share/fw16-synth/fw16_synth.py" \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.fluidsynth ]} \
+              --set DEFAULT_SOUNDFONT "${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM.sf2"
           '';
+          
+          meta = with pkgs.lib; {
+            description = "Transform Framework 16 into a synthesizer";
+            license = licenses.mit;
+            platforms = platforms.linux;
+          };
         };
 
       in {
@@ -54,88 +59,105 @@
           name = "fw16-synth-dev";
           
           packages = with pkgs; [
-            # Python environment
             pythonEnv
-            
-            # FluidSynth and audio
             fluidsynth
             soundfont-fluid
             soundfont-generaluser
-            
-            # Audio backends
             pipewire
             pipewire.pulse
             jack2
-            
-            # Development tools
+            alsa-utils
+            evtest
+            libinput
             python312Packages.black
             python312Packages.mypy
-            python312Packages.pytest
           ];
 
           shellHook = ''
-            echo "╔════════════════════════════════════════════════════════════╗"
-            echo "║  FW16 Synth Development Shell                              ║"
-            echo "║  Framework 16 → Synthesizer Controller                     ║"
-            echo "╠════════════════════════════════════════════════════════════╣"
-            echo "║  Run:  python fw16_synth.py                                ║"
-            echo "║  Or:   nix run                                             ║"
-            echo "╚════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "╔══════════════════════════════════════════════════════════════╗"
+            echo "║  FW16 Synth v2.0 - Development Shell                         ║"
+            echo "╠══════════════════════════════════════════════════════════════╣"
+            echo "║  Run:     python fw16_synth.py                               ║"
+            echo "║  Test:    evtest                                             ║"
+            echo "║  Format:  black fw16_synth.py                                ║"
+            echo "╠══════════════════════════════════════════════════════════════╣"
+            echo "║  New: [Tab] SoundFont Browser  [?] Help  [L] Layer  [A] Arp  ║"
+            echo "╚══════════════════════════════════════════════════════════════╝"
+            echo ""
             
-            # Set default soundfont
             export DEFAULT_SOUNDFONT="${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM.sf2"
-            echo "Soundfont: $DEFAULT_SOUNDFONT"
+            
+            if ! groups | grep -q input; then
+              echo "⚠  Add yourself to 'input' group: sudo usermod -aG input \$USER"
+              echo ""
+            fi
           '';
         };
       }
     ) // {
-      # NixOS module for system-wide installation
+      # NixOS Module
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.programs.fw16-synth;
         in {
           options.programs.fw16-synth = {
-            enable = lib.mkEnableOption "FW16 Synth - Framework 16 synthesizer";
+            enable = lib.mkEnableOption "FW16 Synth synthesizer controller";
             
             audioDriver = lib.mkOption {
-              type = lib.types.enum [ "pulseaudio" "pipewire" "jack" "alsa" ];
+              type = lib.types.enum [ "pipewire" "pulseaudio" "jack" "alsa" ];
               default = "pipewire";
-              description = "Audio backend to use";
+              description = "Audio backend";
             };
             
             soundfont = lib.mkOption {
               type = lib.types.path;
               default = "${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM.sf2";
-              description = "Path to SoundFont file";
+              description = "Default soundfont";
             };
             
-            extraGroups = lib.mkOption {
+            users = lib.mkOption {
               type = lib.types.listOf lib.types.str;
-              default = [ "input" "audio" ];
-              description = "Groups for device access";
+              default = [];
+              description = "Users to grant input device access";
+            };
+            
+            enableRealtimeAudio = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = "Enable realtime audio scheduling";
             };
           };
 
           config = lib.mkIf cfg.enable {
-            # Ensure input device access
-            users.groups.input = {};
-            
-            # udev rules for non-root touchpad/keyboard access
-            services.udev.extraRules = ''
-              # Allow input group to access input devices
-              SUBSYSTEM=="input", GROUP="input", MODE="0660"
-              
-              # Framework 16 specific (adjust vendor/product as needed)
-              SUBSYSTEM=="input", ATTRS{name}=="*Framework*", GROUP="input", MODE="0660"
-            '';
-
             environment.systemPackages = [
               self.packages.${pkgs.system}.default
+              pkgs.evtest
+            ];
+
+            users.groups.input = {};
+            
+            users.users = lib.genAttrs cfg.users (user: {
+              extraGroups = [ "input" "audio" ];
+            });
+
+            services.udev.extraRules = ''
+              SUBSYSTEM=="input", GROUP="input", MODE="0660"
+              SUBSYSTEM=="input", ATTRS{name}=="*Framework*", GROUP="input", MODE="0660"
+              SUBSYSTEM=="input", ATTRS{name}=="*Touchpad*", GROUP="input", MODE="0660"
+            '';
+
+            security.rtkit.enable = cfg.enableRealtimeAudio;
+            
+            security.pam.loginLimits = lib.mkIf cfg.enableRealtimeAudio [
+              { domain = "@audio"; type = "-"; item = "rtprio"; value = "95"; }
+              { domain = "@audio"; type = "-"; item = "memlock"; value = "unlimited"; }
+              { domain = "@audio"; type = "-"; item = "nice"; value = "-19"; }
             ];
           };
         };
 
-      # Home-manager module
+      # Home-Manager Module
       homeModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.programs.fw16-synth;
@@ -146,22 +168,33 @@
             soundfont = lib.mkOption {
               type = lib.types.str;
               default = "${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM.sf2";
-              description = "Default soundfont";
+            };
+            
+            audioDriver = lib.mkOption {
+              type = lib.types.enum [ "pipewire" "pulseaudio" "jack" "alsa" ];
+              default = "pipewire";
+            };
+            
+            defaultOctave = lib.mkOption {
+              type = lib.types.int;
+              default = 4;
             };
           };
 
           config = lib.mkIf cfg.enable {
             home.packages = [ self.packages.${pkgs.system}.default ];
             
-            # Desktop entry
             xdg.desktopEntries.fw16-synth = {
               name = "FW16 Synth";
-              comment = "Turn your Framework 16 into a synthesizer";
-              exec = "fw16-synth --soundfont ${cfg.soundfont}";
+              comment = "Framework 16 Synthesizer";
+              exec = "fw16-synth --driver ${cfg.audioDriver}";
               terminal = true;
-              categories = [ "Audio" "Music" ];
+              categories = [ "Audio" "Music" "Midi" ];
               icon = "audio-x-generic";
             };
+            
+            # Create config directory
+            xdg.configFile."fw16-synth/.keep".text = "";
           };
         };
     };
