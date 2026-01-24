@@ -64,7 +64,7 @@ nix run github:your-repo/fw16-synth
 
 # Or add to flake.nix
 {
-  inputs.fw16-synth.url = "github:your-repo/fw16-synth";
+  inputs.fw16-synth.url = "github:ALH477/fw16-synth";
 }
 
 # Then in configuration.nix
