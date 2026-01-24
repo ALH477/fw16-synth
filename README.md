@@ -60,7 +60,7 @@ Uses the laptop keyboard as a piano keyboard and the touchpad for real-time modu
 
 ```bash
 # Run directly
-nix run github:your-repo/fw16-synth
+nix run github:ALH477/fw16-synth
 
 # Or add to flake.nix
 {
