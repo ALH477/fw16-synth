@@ -1,191 +1,369 @@
-# FW16 Synth
-
-**Transform your Framework 16 into a synthesizer.**
-
-Uses the laptop keyboard as a piano keyboard and the touchpad for real-time modulation. Low-latency evdev input bypasses the display server for direct hardware access.
-
-## Features
-
-- **Keyboard Piano**: 3+ octave range mapped across QWERTY, ASDF, and ZXCV rows
-- **Black Keys**: Number row (2, 3, 5, 6, 7, 9, 0) = sharps/flats
-- **Touchpad Modulation**: X-axis = pitch bend, Y-axis = filter/mod wheel, pressure = expression
-- **Velocity Sensitivity**: Keypress timing determines note velocity
-- **128 GM Instruments**: Full General MIDI support via FluidSynth
-- **Sustain Pedal**: Space bar acts as sustain
-- **Exclusive Input**: Grabs devices for zero-conflict operation
-
-## Keyboard Layout
+# FW16 Synth v2.0
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  `  1  2  3  4  5  6  7  8  9  0  -  =  ⌫                      │
-│        C# D#    F# G# A#    C# D#  ▼  ▲  (octave controls)     │
-├─────────────────────────────────────────────────────────────────┤
-│  ⇥  Q  W  E  R  T  Y  U  I  O  P  [  ]  \                      │
-│     C  D  E  F  G  A  B  C  D  E  F  G     (octave 0)          │
-├─────────────────────────────────────────────────────────────────┤
-│  ⇪  A  S  D  F  G  H  J  K  L  ;  '  ↵                         │
-│     C  D  E  F  G  A  B  C  D  E  F        (octave -1)         │
-├─────────────────────────────────────────────────────────────────┤
-│  ⇧  Z  X  C  V  B  N  M  ,  .  /  ⇧                            │
-│     C  D  E  F  G  A  B  C  D  E           (octave -2)         │
-├─────────────────────────────────────────────────────────────────┤
-│  Ctrl ❖ Alt ━━━━━━━ SUSTAIN ━━━━━━━ Alt Fn Ctrl               │
-└─────────────────────────────────────────────────────────────────┘
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ ∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿ ║
+║                                                                              ║
+║  ███████╗██╗    ██╗ ██╗ ██████╗     ███████╗██╗   ██╗███╗   ██╗████████╗██╗  ██╗  ║
+║  ██╔════╝██║    ██║███║██╔════╝     ██╔════╝╚██╗ ██╔╝████╗  ██║╚══██╔══╝██║  ██║  ║
+║  █████╗  ██║ █╗ ██║╚██║███████╗     ███████╗ ╚████╔╝ ██╔██╗ ██║   ██║   ███████║  ║
+║  ██╔══╝  ██║███╗██║ ██║██╔═══██╗    ╚════██║  ╚██╔╝  ██║╚██╗██║   ██║   ██╔══██║  ║
+║  ██║     ╚███╔███╔╝ ██║╚██████╔╝    ███████║   ██║   ██║ ╚████║   ██║   ██║  ██║  ║
+║  ╚═╝      ╚══╝╚══╝  ╚═╝ ╚═════╝     ╚══════╝   ╚═╝   ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝  ║
+║                                                                              ║
+║                     ──────── ╭─────╮╭╮╭──╮╭╮╭─────╮ ────────                 ║
+║                                                                              ║
+║          ██████╗ ███████╗███╗   ███╗ ██████╗ ██████╗                         ║
+║          ██╔══██╗██╔════╝████╗ ████║██╔═══██╗██╔══██╗                        ║
+║          ██║  ██║█████╗  ██╔████╔██║██║   ██║██║  ██║                        ║
+║          ██║  ██║██╔══╝  ██║╚██╔╝██║██║   ██║██║  ██║                        ║
+║          ██████╔╝███████╗██║ ╚═╝ ██║╚██████╔╝██████╔╝                        ║
+║          ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝                         ║
+║                                                                              ║
+║                        « Design ≠ Marketing »                                ║
+║                                                                              ║
+║  ┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃  ║
+║ ∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿ ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+**Transform your Framework 16 into a professional synthesizer.**
+
+A low-latency FluidSynth controller with real-time TUI, SoundFont browser, arpeggiator, layer mode, and touchpad modulation. Built for performance.
+
+![Version](https://img.shields.io/badge/version-2.0-00D7AF)
+![NixOS](https://img.shields.io/badge/NixOS-ready-5277C3)
+![License](https://img.shields.io/badge/license-MIT-AF5FFF)
+
+## What's New in v2.0
+
+- **SoundFont Browser** — Press `Tab` to browse, preview, and load soundfonts
+- **Help Overlay** — Press `?` for quick reference
+- **Arpeggiator** — Press `A` to cycle through Up/Down/UpDown/Random modes
+- **Layer Mode** — Press `L` to play two instruments simultaneously  
+- **Transpose** — Press `Shift + </>` to transpose ±12 semitones
+- **Velocity Meter** — Real-time velocity visualization
+- **Chord Display** — See currently held notes
+- **Favorites** — Star your favorite soundfonts
+
+## Quick Start
+
+```bash
+# NixOS / Nix
+nix run github:your-repo/fw16-synth
+
+# Development
+nix develop
+python fw16_synth.py
+
+# Manual
+pip install evdev pyfluidsynth
+python fw16_synth.py
+```
+
+## Screenshot
+
+```
+╔═══ FW16 SYNTH ═══════════════════════════════════ FluidR3_GM ═══╗
+║ Oct:4 T:+0 │ Prog:000 Acoustic Grand     │  SUS   LYR  ARP:---  TCH ║
+╟──────────────────────────────────────────────────────────────────────╢
+║ [`][1][2][3][4][5][6][7][8][9][0][-][=][⌫]                          ║
+║ [⇥][Q][W][E][R][T][Y][U][I][O][P][[][]][\\]                          ║
+║ [⇪][A][S][D][F][G][H][J][K][L][;]['][↵]                             ║
+║ [⇧][Z][X][C][V][B][N][M][,][.][/][⇧]                                ║
+║ [Ctrl] [❖] [Alt]  [━━━━━ SUSTAIN ━━━━━]  [Alt] [Fn] [Ctrl]          ║
+╟──────────────────────────────────────────────────────────────────────╢
+║  ·····+·····│·····  │ ├─ Meters ─┤                                  ║
+║  ·····│·····│·····  │ Vel  ████████ 98                              ║
+║  ─────●─────│─────  │ Bend ████░░░░ +25%                            ║
+║  ·····│·····│·····  │ Filt ██████░░  89                             ║
+║  ·····+·····│·····  │ Expr ████████ 112                             ║
+║   Touchpad (X=Bend) │ Chord: C4 E4 G4                               ║
+╟──────────────────────────────────────────────────────────────────────╢
+║ 14:32:05 Program → 0: Acoustic Grand                                ║
+║ 14:32:08 ♪ C4 ON  vel=98                                            ║
+╟──────────────────────────────────────────────────────────────────────╢
+║ [?] Help  [Tab] SoundFonts  [+/-] Oct  [</>] Transpose  [L] Layer   ║
+╚══════════════════════════════════════════════════════════════════════╝
 ```
 
 ## Controls
 
+### Keyboard Layout
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│  `   1   2   3   4   5   6   7   8   9   0   -   =   ⌫           │
+│          C#  D#      F#  G#  A#      C#  D#  Oct Oct              │
+├───────────────────────────────────────────────────────────────────┤
+│  ⇥   Q   W   E   R   T   Y   U   I   O   P   [   ]   \           │
+│      C   D   E   F   G   A   B   C   D   E   F   G                │
+│                    Main Octave                                    │
+├───────────────────────────────────────────────────────────────────┤
+│  ⇪   A   S   D   F   G   H   J   K   L   ;   '   ↵               │
+│      C   D   E   F   G   A   B   C   D   E   F                    │
+│                    Lower Octave (-1)                              │
+├───────────────────────────────────────────────────────────────────┤
+│  ⇧   Z   X   C   V   B   N   M   ,   .   /   ⇧                   │
+│      C   D   E   F   G   A   B   C   D   E                        │
+│                    Bass Octave (-2)                               │
+├───────────────────────────────────────────────────────────────────┤
+│  Ctrl  ❖  Alt  ━━━━━━━━ SUSTAIN ━━━━━━━━  Alt  Fn  Ctrl          │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+### Control Keys
+
 | Key | Function |
 |-----|----------|
-| `+` / `=` | Octave up |
-| `-` | Octave down |
 | `Space` | Sustain pedal |
-| `Page Up` | Next instrument |
-| `Page Down` | Previous instrument |
+| `+` / `-` | Octave up/down |
+| `Shift + <` | Transpose down |
+| `Shift + >` | Transpose up |
+| `Page Up/Down` | Previous/next instrument |
+| `F1-F12` | Quick presets |
+| `Tab` | Open SoundFont browser |
+| `L` | Toggle layer mode |
+| `A` | Cycle arpeggiator modes |
+| `?` | Show help overlay |
 | `Esc` | Panic (all notes off) |
 | `Ctrl+C` | Exit |
 
-## Touchpad Modulation
+### Presets (F1-F12)
+
+| Key | Instrument | Key | Instrument |
+|-----|------------|-----|------------|
+| F1 | Acoustic Grand | F7 | Brass Section |
+| F2 | Electric Piano 1 | F8 | Tenor Sax |
+| F3 | Drawbar Organ | F9 | Flute |
+| F4 | Nylon Guitar | F10 | Saw Lead |
+| F5 | Synth Strings | F11 | Warm Pad |
+| F6 | Choir Aahs | F12 | Atmosphere |
+
+## Features
+
+### SoundFont Browser
+
+Press `Tab` to open the browser:
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║                      SOUNDFONT BROWSER                           ║
+║     [↑/↓] Select  [Enter] Load  [F] Favorite  [Tab/Esc] Close    ║
+╟──────────────────────────────────────────────────────────────────╢
+║ ▶ ★ FluidR3_GM                                           140.2MB ║
+║   ★ GeneralUser_GS                                        29.8MB ║
+║     Arachno_SoundFont                                    148.1MB ║
+║     Nice-Keys-Ultimate                                    52.3MB ║
+║     SGM-V2.01                                            235.8MB ║
+╟──────────────────────────────────────────────────────────────────╢
+║ /usr/share/soundfonts/FluidR3_GM.sf2                             ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+Features:
+- Auto-scans common locations (`~/.local/share/soundfonts`, `/usr/share/soundfonts`, Nix store)
+- Favorites persist across sessions (★ indicator)
+- Recent files remembered
+- Hot-reload without stopping playback
+- File size display
+
+### Arpeggiator
+
+Press `A` to cycle modes:
+- **OFF** — Normal playing
+- **UP** — Ascending arpeggio
+- **DOWN** — Descending arpeggio  
+- **UP_DOWN** — Alternating direction
+- **RANDOM** — Random note selection
+
+Hold notes and they'll be arpeggiated automatically.
+
+### Layer Mode
+
+Press `L` to enable layering. Plays two instruments simultaneously:
+- Main: Current program
+- Layer: Strings (program 48)
+
+Great for creating rich, full sounds.
+
+### Touchpad Modulation
 
 | Axis | MIDI Control | Effect |
 |------|--------------|--------|
-| X (left/right) | Pitch Bend | ±2 semitones (configurable) |
-| Y (up/down) | CC 74 | Filter cutoff / brightness |
-| Pressure | CC 11 | Expression |
+| **X** (horizontal) | Pitch Bend | ±2 semitones |
+| **Y** (vertical) | CC 74 | Filter cutoff |
+| **Pressure** | CC 11 | Expression |
+
+Visual feedback in the TUI shows current position and values.
 
 ## Installation
 
-### NixOS (Flake)
+### NixOS
 
-```bash
-# Run directly
-nix run github:ALH477/fw16-synth
-
-# Or add to flake.nix
+```nix
+# flake.nix
 {
-  inputs.fw16-synth.url = "github:ALH477/fw16-synth";
+  inputs.fw16-synth.url = "github:your-repo/fw16-synth";
 }
 
-# Then in configuration.nix
-programs.fw16-synth.enable = true;
+# configuration.nix
+{ inputs, ... }: {
+  imports = [ inputs.fw16-synth.nixosModules.default ];
+  
+  programs.fw16-synth = {
+    enable = true;
+    users = [ "your-username" ];
+    audioDriver = "pipewire";
+  };
+}
 ```
 
-### Development Shell
+### Home-Manager
+
+```nix
+programs.fw16-synth = {
+  enable = true;
+  defaultOctave = 4;
+};
+```
+
+### Manual
 
 ```bash
-nix develop
+# Debian/Ubuntu
+sudo apt install fluidsynth fluid-soundfont-gm
+pip install evdev pyfluidsynth
+
+# Arch
+sudo pacman -S fluidsynth soundfont-fluid
+pip install evdev pyfluidsynth
+
+# Run
 python fw16_synth.py
 ```
 
-### Manual Installation
+### Device Access
 
 ```bash
-# Dependencies
-pip install evdev pyfluidsynth
-
-# System packages (Debian/Ubuntu)
-sudo apt install fluidsynth fluid-soundfont-gm
-
-# System packages (Fedora)
-sudo dnf install fluidsynth fluid-soundfont-gm
-
-# Run
-python fw16_synth.py --soundfont /path/to/soundfont.sf2
+# Add to input group
+sudo usermod -aG input $USER
+# Log out and back in
 ```
 
-## Usage
-
-```bash
-# Basic usage (auto-detects soundfont)
-fw16-synth
-
-# Specify soundfont
-fw16-synth --soundfont ~/Music/soundfonts/Nice-Keys-Ultimate.sf2
-
-# Use JACK audio
-fw16-synth --driver jack
-
-# Start at different octave
-fw16-synth --octave 3
-
-# Start with different instrument (0=Piano, 25=Nylon Guitar, etc.)
-fw16-synth --program 25
-
-# Quiet mode (no note output)
-fw16-synth --quiet
-```
-
-## Permissions
-
-Requires access to `/dev/input/event*` devices. Options:
-
-1. **Run as root** (not recommended)
-2. **Add user to input group**:
-   ```bash
-   sudo usermod -aG input $USER
-   # Log out and back in
-   ```
-3. **udev rules** (included in NixOS module):
-   ```bash
-   # /etc/udev/rules.d/99-fw16-synth.rules
-   SUBSYSTEM=="input", GROUP="input", MODE="0660"
-   ```
-
-## Architecture
+## Command Line
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                      FW16 Synth                              │
-├──────────────┬───────────────────────────────────────────────┤
-│   evdev      │  Direct kernel input (bypasses X11/Wayland)  │
-├──────────────┼───────────────────────────────────────────────┤
-│   asyncio    │  Non-blocking event processing               │
-├──────────────┼───────────────────────────────────────────────┤
-│  FluidSynth  │  Software synthesizer with SoundFont support │
-├──────────────┼───────────────────────────────────────────────┤
-│  PulseAudio  │  Audio output (or JACK/ALSA/PipeWire)        │
-│  PipeWire    │                                               │
-│  JACK        │                                               │
-└──────────────┴───────────────────────────────────────────────┘
+usage: fw16_synth.py [-h] [--soundfont PATH] [--driver DRIVER]
+                     [--octave N] [--program N] [--velocity N]
+                     [--no-tui] [--verbose] [--log-file PATH]
+
+Options:
+  --soundfont, -s   SoundFont file (.sf2)
+  --driver, -d      Audio: pipewire, pulseaudio, jack, alsa
+  --octave, -o      Starting octave (0-8, default: 4)
+  --program, -p     Starting program (0-127, default: 0)
+  --velocity        Fixed velocity (disables dynamic)
+  --no-tui          Text-only mode
+  --verbose, -v     Debug logging
 ```
 
-## Velocity Calculation
+## SoundFont Locations
 
-Note velocity is determined by the time between key release and next key press of the same key. This provides expressive control without pressure-sensitive keys.
+The browser searches:
+- `~/.local/share/soundfonts/`
+- `~/soundfonts/`
+- `~/Music/soundfonts/`
+- `/usr/share/soundfonts/`
+- `/usr/share/sounds/sf2/`
+- `/nix/store/*soundfont*/` (Nix)
 
-- Fast keypress (< 10ms): Maximum velocity (127)
-- Slow keypress (> 150ms): Minimum velocity (40)
-- Linear interpolation between
+State saved to `~/.config/fw16-synth/soundfonts.json`
+
+## Performance
+
+| Component | Latency |
+|-----------|---------|
+| Keyboard → evdev | <1ms |
+| Processing | <1ms |
+| FluidSynth | 1-2ms |
+| PipeWire (128 samples) | ~2.7ms |
+| **Total** | **~5ms** |
 
 ## Troubleshooting
 
-### "No keyboard found"
-- Check `/dev/input/event*` permissions
-- Ensure you're in the `input` group
-- Try running with `sudo` to test
+### No input devices
+
+```bash
+# Check permissions
+ls -la /dev/input/event*
+
+# Test device access
+evtest
+
+# Verify group membership
+groups | grep input
+```
 
 ### No sound
-- Check audio backend: `--driver pulseaudio` or `--driver pipewire`
-- Verify soundfont exists: `--soundfont /path/to/file.sf2`
-- Check volume levels in pavucontrol
 
-### High latency
-- Use JACK: `--driver jack` with low buffer sizes
-- Check if PipeWire is running in low-latency mode
-- Consider real-time kernel for professional use
+```bash
+# Test audio
+pactl info  # PulseAudio/PipeWire
+jack_lsp    # JACK
 
-### Touchpad not detected
-- Framework 16 touchpad should auto-detect
-- Check `evtest` for touchpad device
-- Modulation works without touchpad (keyboard-only mode)
+# Test FluidSynth directly
+fluidsynth -a pulseaudio /usr/share/soundfonts/FluidR3_GM.sf2
+```
+
+### SoundFonts not found
+
+```bash
+# Check search paths
+ls ~/.local/share/soundfonts/
+ls /usr/share/soundfonts/
+
+# Specify directly
+fw16-synth --soundfont /path/to/soundfont.sf2
+```
+
+## Development
+
+```bash
+nix develop
+
+# Run with debug
+python fw16_synth.py --verbose
+
+# Format
+black fw16_synth.py
+
+# Type check
+mypy fw16_synth.py
+```
 
 ## License
 
-MIT License - DeMoD LLC
+MIT License — DeMoD LLC
 
-## Credits
+---
 
-- [FluidSynth](https://www.fluidsynth.org/) - Software synthesizer
-- [python-evdev](https://python-evdev.readthedocs.io/) - Linux input device access
-- [pyfluidsynth](https://github.com/nwhitehead/pyfluidsynth) - Python FluidSynth bindings
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║          ██████╗ ███████╗███╗   ███╗ ██████╗ ██████╗                         ║
+║          ██╔══██╗██╔════╝████╗ ████║██╔═══██╗██╔══██╗                        ║
+║          ██║  ██║█████╗  ██╔████╔██║██║   ██║██║  ██║                        ║
+║          ██║  ██║██╔══╝  ██║╚██╔╝██║██║   ██║██║  ██║                        ║
+║          ██████╔╝███████╗██║ ╚═╝ ██║╚██████╔╝██████╔╝                        ║
+║          ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝                         ║
+║                                                                              ║
+║                    ╭──────────────────────────────╮                          ║
+║                    │    « Design ≠ Marketing »    │                          ║
+║                    ╰──────────────────────────────╯                          ║
+║                                                                              ║
+║  ┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃┃█┃█┃┃█┃█┃█┃  ║
+║                                                                              ║
+║  ∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
