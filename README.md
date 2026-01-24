@@ -49,17 +49,48 @@ A low-latency FluidSynth controller with real-time TUI, SoundFont browser, arpeg
 ## Quick Start
 
 ```bash
-# NixOS / Nix
+# Run directly from GitHub (requires Nix)
 nix run github:ALH477/fw16-synth
 
-# Development
+# Or clone and run locally
+git clone https://github.com/ALH477/fw16-synth.git
+cd fw16-synth
+nix run .
+
+# Development shell
 nix develop
 python fw16_synth.py
-
-# Manual
-pip install evdev pyfluidsynth
-python fw16_synth.py
 ```
+
+### Manual Installation (without Nix)
+
+```bash
+# Install dependencies
+pip install evdev pyfluidsynth
+
+# Install FluidSynth and a SoundFont
+# Debian/Ubuntu: sudo apt install fluidsynth fluid-soundfont-gm
+# Fedora: sudo dnf install fluidsynth fluid-soundfont-gm
+# Arch: sudo pacman -S fluidsynth soundfont-fluid
+
+# Run
+python fw16_synth.py
+
+# Or use the launcher (does pre-flight checks)
+./launch.sh
+```
+
+### Prerequisites
+
+1. **Input group membership** (required for keyboard/touchpad access):
+   ```bash
+   sudo usermod -aG input $USER
+   # Log out and back in
+   ```
+
+2. **Audio server**: PipeWire, PulseAudio, or JACK
+
+3. **SoundFont**: The app auto-discovers soundfonts, or specify with `--soundfont`
 
 ## Screenshot
 
@@ -199,36 +230,51 @@ Visual feedback in the TUI shows current position and values.
 
 ## Installation
 
-### NixOS
+### NixOS Module
 
 ```nix
 # flake.nix
 {
-  inputs.fw16-synth.url = "github:ALH477/fw16-synth";
-}
-
-# configuration.nix
-{ inputs, ... }: {
-  imports = [ inputs.fw16-synth.nixosModules.default ];
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    fw16-synth.url = "github:ALH477/fw16-synth";
+  };
   
-  programs.fw16-synth = {
-    enable = true;
-    users = [ "your-username" ];
-    audioDriver = "pipewire";
+  outputs = { nixpkgs, fw16-synth, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        fw16-synth.nixosModules.default
+        {
+          programs.fw16-synth = {
+            enable = true;
+            users = [ "your-username" ];
+            audioDriver = "pipewire";  # or "pulseaudio", "jack", "alsa"
+            enableRealtimeAudio = true;
+          };
+        }
+      ];
+    };
   };
 }
 ```
 
-### Home-Manager
+### Home-Manager Module
 
 ```nix
-programs.fw16-synth = {
-  enable = true;
-  defaultOctave = 4;
-};
+# In your home.nix or home-manager flake config
+{ inputs, ... }: {
+  imports = [ inputs.fw16-synth.homeManagerModules.default ];
+  
+  programs.fw16-synth = {
+    enable = true;
+    audioDriver = "pipewire";
+    defaultOctave = 4;
+    defaultProgram = 0;  # Acoustic Grand Piano
+  };
+}
 ```
 
-### Manual
+### Manual Installation
 
 ```bash
 # Debian/Ubuntu
