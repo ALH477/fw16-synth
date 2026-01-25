@@ -49,12 +49,13 @@ A low-latency FluidSynth controller with real-time TUI, SoundFont browser, arpeg
 ## Quick Start
 
 ```bash
-# Run directly from GitHub (requires Nix)
+# Run directly from GitHub (requires Nix with flakes enabled)
 nix run github:ALH477/fw16-synth
 
 # Or clone and run locally
 git clone https://github.com/ALH477/fw16-synth.git
 cd fw16-synth
+nix flake update  # Generate/update flake.lock
 nix run .
 
 # Development shell
@@ -337,6 +338,18 @@ State saved to `~/.config/fw16-synth/soundfonts.json`
 | **Total** | **~5ms** |
 
 ## Troubleshooting
+
+### Nix flake errors
+
+```bash
+# If you get HTTP 404 or lock file errors:
+rm flake.lock
+nix flake update
+nix run .
+
+# For "cannot write lock file" errors:
+nix run . --no-write-lock-file
+```
 
 ### No input devices
 
