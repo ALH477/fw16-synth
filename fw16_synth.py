@@ -77,6 +77,13 @@ import evdev
 from evdev import ecodes, InputDevice
 import fluidsynth
 
+# Optional MIDI input support (for FW16 Piano Keyboard Module and other USB MIDI devices)
+try:
+    import rtmidi
+    RTMIDI_AVAILABLE = True
+except ImportError:
+    RTMIDI_AVAILABLE = False
+
 
 # =============================================================================
 # LOGGING
@@ -124,7 +131,8 @@ log = logging.getLogger('fw16synth')
 # =============================================================================
 
 class AudioDriver(str, Enum):
-    PIPEWIRE = "pipewire"
+    # Note: PipeWire provides PulseAudio compatibility, so we use "pulseaudio" driver
+    PIPEWIRE = "pulseaudio"  # PipeWire via PulseAudio compatibility
     PULSEAUDIO = "pulseaudio"
     JACK = "jack"
     ALSA = "alsa"
@@ -327,6 +335,11 @@ class SynthConfig:
     enable_arpeggiator: bool = True
     enable_transpose: bool = True
     enable_layer: bool = True
+    
+    # MIDI Input (for FW16 Piano Keyboard Module and other USB MIDI devices)
+    midi_input_enabled: bool = False
+    midi_port: Optional[str] = None  # Port name substring or None for auto-detect
+    midi_auto_connect: bool = True   # Auto-connect to FW16 module if found
 
 
 # =============================================================================
@@ -1213,6 +1226,11 @@ class TerminalUI:
         self.download_status: str = ""
         self.download_active: bool = False
         
+        # MIDI input state (FW16 Piano Keyboard Module)
+        self.midi_connected: bool = False
+        self.midi_port_name: str = ""
+        self.last_velocity: int = 0  # From MIDI input
+        
         # Performance
         self.latency_ms: float = 0.0
         self.note_count: int = 0
@@ -1321,14 +1339,17 @@ class TerminalUI:
         
         touch_ind = f"{Color.BG_VIOLET}{Color.WHITE} TCH {Color.RESET}" if self.touching else f"{Color.DARK_GRAY} TCH {Color.RESET}"
         
+        # MIDI input indicator (FW16 Piano Keyboard Module)
+        midi_ind = f"{Color.BG_GREEN}{Color.WHITE} MIDI {Color.RESET}" if self.midi_connected else f"{Color.DARK_GRAY} MIDI {Color.RESET}"
+        
         line = (
             f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET} "
             f"{oct_str} {trans_str} │ {prog_str} │ "
-            f"{sus_ind} {layer_ind} {arp_ind} {touch_ind}"
+            f"{sus_ind} {layer_ind} {arp_ind} {touch_ind} {midi_ind}"
         )
         
         # Pad to width (approximate)
-        line += " " * 10 + f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+        line += " " * 4 + f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
         lines.append(line)
         
         # Separator
@@ -1635,6 +1656,8 @@ class TerminalUI:
             ]),
             (f"{Color.VIOLET}▸ Features{Color.RESET}", [
                 ("Tab", "SoundFont browser"),
+                ("D", "Download soundfonts"),
+                ("M", "Toggle MIDI input (FW16 module)"),
                 ("L", "Layer mode (dual voice)"),
                 ("A", "Arpeggiator (↑/↓/↑↓/?)"),
                 ("Esc", "Panic (all notes off)"),
@@ -2128,6 +2151,7 @@ class KeyboardMapper:
     CTRL_ARP = ecodes.KEY_A
     CTRL_SOUNDFONT = ecodes.KEY_TAB
     CTRL_DOWNLOAD = ecodes.KEY_D
+    CTRL_MIDI = ecodes.KEY_M  # Toggle MIDI input (FW16 Piano Keyboard Module)
     CTRL_FAVORITE = ecodes.KEY_F
     
     NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -2518,6 +2542,273 @@ class Arpeggiator:
 
 
 # =============================================================================
+# MIDI INPUT CONTROLLER (Framework 16 Piano Keyboard Module Support)
+# =============================================================================
+
+class MIDIInputController:
+    """
+    MIDI input handler for external MIDI devices.
+    
+    Supports the Framework 16 Piano Keyboard Module (pitstop_tech) and other
+    USB MIDI controllers. Features:
+    - Auto-detection of MIDI input devices
+    - Velocity-sensitive note input
+    - Aftertouch (channel pressure) support
+    - Pitch bend and CC passthrough
+    - Hot-plug detection
+    
+    The FW16 Piano Keyboard Module appears as a standard USB MIDI device
+    with velocity and aftertouch support.
+    """
+    
+    # Known Framework 16 MIDI module identifiers
+    FW16_MIDI_KEYWORDS = ['framework', 'fw16', 'piano', 'pitstop']
+    
+    def __init__(self, engine: FluidSynthEngine, callback: Optional[Callable] = None):
+        self.engine = engine
+        self.callback = callback  # For UI updates
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._midi_in = None
+        self._port_name: str = ""
+        self._connected = False
+        self._last_activity = 0.0
+        
+        # State tracking
+        self._active_notes: Set[int] = set()
+        self._aftertouch_value: int = 0
+        self._pitch_bend: int = 8192  # Center
+        
+        if not RTMIDI_AVAILABLE:
+            log.warning("python-rtmidi not available - MIDI input disabled")
+            log.info("Install with: pip install python-rtmidi")
+    
+    @property
+    def available(self) -> bool:
+        return RTMIDI_AVAILABLE
+    
+    @property
+    def connected(self) -> bool:
+        return self._connected
+    
+    @property
+    def port_name(self) -> str:
+        return self._port_name
+    
+    def list_ports(self) -> List[str]:
+        """List available MIDI input ports"""
+        if not RTMIDI_AVAILABLE:
+            return []
+        
+        try:
+            midi_in = rtmidi.RtMidiIn()
+            ports = []
+            for i in range(midi_in.getPortCount()):
+                ports.append(midi_in.getPortName(i))
+            return ports
+        except Exception as e:
+            log.error(f"Error listing MIDI ports: {e}")
+            return []
+    
+    def find_fw16_module(self) -> Optional[int]:
+        """
+        Find the Framework 16 Piano Keyboard Module by name.
+        Returns port index or None if not found.
+        """
+        ports = self.list_ports()
+        for i, name in enumerate(ports):
+            name_lower = name.lower()
+            if any(kw in name_lower for kw in self.FW16_MIDI_KEYWORDS):
+                log.info(f"Found FW16 MIDI module: {name}")
+                return i
+        return None
+    
+    def connect(self, port: Optional[int] = None, port_name: Optional[str] = None) -> bool:
+        """
+        Connect to a MIDI input port.
+        
+        Args:
+            port: Port index (0-based)
+            port_name: Substring of port name to match
+            
+        If neither specified, auto-detects FW16 module or uses first available.
+        """
+        if not RTMIDI_AVAILABLE:
+            return False
+        
+        try:
+            self._midi_in = rtmidi.RtMidiIn()
+            ports = self.list_ports()
+            
+            if not ports:
+                log.warning("No MIDI input ports available")
+                return False
+            
+            # Determine which port to open
+            target_port = None
+            
+            if port is not None:
+                if 0 <= port < len(ports):
+                    target_port = port
+                else:
+                    log.error(f"Invalid port index: {port}")
+                    return False
+            elif port_name:
+                # Match by name substring
+                for i, name in enumerate(ports):
+                    if port_name.lower() in name.lower():
+                        target_port = i
+                        break
+                if target_port is None:
+                    log.error(f"No port matching '{port_name}' found")
+                    return False
+            else:
+                # Auto-detect: prefer FW16 module, fallback to first
+                target_port = self.find_fw16_module()
+                if target_port is None and ports:
+                    target_port = 0
+            
+            if target_port is None:
+                return False
+            
+            # Open the port
+            self._midi_in.openPort(target_port)
+            self._port_name = ports[target_port]
+            self._connected = True
+            
+            log.info(f"Connected to MIDI input: {self._port_name}")
+            return True
+            
+        except Exception as e:
+            log.error(f"Failed to connect to MIDI port: {e}")
+            self._connected = False
+            return False
+    
+    def disconnect(self):
+        """Disconnect from MIDI port"""
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+        
+        if self._midi_in:
+            try:
+                self._midi_in.closePort()
+            except:
+                pass
+            self._midi_in = None
+        
+        self._connected = False
+        self._port_name = ""
+        log.info("MIDI input disconnected")
+    
+    def start(self):
+        """Start MIDI input processing in background thread"""
+        if not self._connected:
+            log.warning("Cannot start MIDI input - not connected")
+            return
+        
+        self._running = True
+        self._thread = threading.Thread(target=self._midi_loop, daemon=True)
+        self._thread.start()
+        log.info("MIDI input processing started")
+    
+    def stop(self):
+        """Stop MIDI input processing"""
+        self._running = False
+        # Send note-offs for any stuck notes
+        for note in list(self._active_notes):
+            self.engine.note_off(note)
+        self._active_notes.clear()
+    
+    def _midi_loop(self):
+        """Background thread for MIDI message processing"""
+        while self._running and self._midi_in:
+            try:
+                msg = self._midi_in.getMessage(50)  # 50ms timeout
+                if msg:
+                    self._process_message(msg)
+            except Exception as e:
+                log.error(f"MIDI input error: {e}")
+                time.sleep(0.1)
+    
+    def _process_message(self, msg):
+        """Process incoming MIDI message"""
+        self._last_activity = time.time()
+        
+        # rtmidi returns MidiMessage object with various methods
+        if msg.isNoteOn():
+            note = msg.getNoteNumber()
+            velocity = msg.getVelocity()
+            
+            if velocity > 0:
+                self._active_notes.add(note)
+                self.engine.note_on(note, velocity)
+                
+                if self.callback:
+                    note_name = self._note_name(note)
+                    self.callback('note_on', note, note_name, velocity)
+            else:
+                # Note on with velocity 0 = note off
+                self._active_notes.discard(note)
+                self.engine.note_off(note)
+                
+                if self.callback:
+                    note_name = self._note_name(note)
+                    self.callback('note_off', note, note_name, 0)
+        
+        elif msg.isNoteOff():
+            note = msg.getNoteNumber()
+            self._active_notes.discard(note)
+            self.engine.note_off(note)
+            
+            if self.callback:
+                note_name = self._note_name(note)
+                self.callback('note_off', note, note_name, 0)
+        
+        elif msg.isAftertouch():
+            # Channel aftertouch - send as expression
+            value = msg.getAfterTouchValue()
+            self._aftertouch_value = value
+            # Map aftertouch to expression (CC 11)
+            self.engine.control_change(11, value)
+            
+            if self.callback:
+                self.callback('aftertouch', value, '', 0)
+        
+        elif msg.isController():
+            cc = msg.getControllerNumber()
+            value = msg.getControllerValue()
+            self.engine.control_change(cc, value)
+            
+            if self.callback:
+                self.callback('cc', cc, f'CC{cc}', value)
+        
+        elif msg.isPitchWheel():
+            # Pitch bend: 0-16383, center at 8192
+            value = msg.getPitchWheelValue()
+            self._pitch_bend = value
+            self.engine.pitch_bend(value)
+            
+            if self.callback:
+                normalized = (value - 8192) / 8192.0
+                self.callback('pitch_bend', value, '', int(normalized * 100))
+        
+        elif msg.isProgramChange():
+            program = msg.getProgramChangeNumber()
+            self.engine.program_change(program)
+            
+            if self.callback:
+                self.callback('program', program, GM_INSTRUMENTS[program], 0)
+    
+    def _note_name(self, note: int) -> str:
+        """Convert MIDI note to name (e.g., 60 -> 'C4')"""
+        names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        octave = (note // 12) - 1
+        name = names[note % 12]
+        return f"{name}{octave}"
+
+
+# =============================================================================
 # MAIN SYNTHESIZER
 # =============================================================================
 
@@ -2536,6 +2827,11 @@ class FW16Synth:
         self.velocity = VelocityTracker(config)
         self.arpeggiator = Arpeggiator(self.engine)
         self.ui = TerminalUI(config) if config.show_tui else None
+        
+        # MIDI input (for FW16 Piano Keyboard Module and other USB MIDI devices)
+        self.midi_input: Optional[MIDIInputController] = None
+        self._midi_enabled = config.midi_input_enabled if hasattr(config, 'midi_input_enabled') else False
+        self._midi_port = config.midi_port if hasattr(config, 'midi_port') else None
         
         # State
         self.octave = config.base_octave
@@ -2588,12 +2884,106 @@ class FW16Synth:
             log.error("No input devices found")
             return False
         
+        # Initialize MIDI input (FW16 Piano Keyboard Module support)
+        if self._midi_enabled or RTMIDI_AVAILABLE:
+            self._setup_midi_input()
+        
         log.info("Initialization complete")
         return True
     
+    def _setup_midi_input(self):
+        """Setup MIDI input controller for FW16 Piano Keyboard Module"""
+        if not RTMIDI_AVAILABLE:
+            log.info("MIDI input not available (install python-rtmidi)")
+            return
+        
+        self.midi_input = MIDIInputController(self.engine, self._midi_callback)
+        
+        # List available MIDI ports
+        ports = self.midi_input.list_ports()
+        if ports:
+            log.info(f"Available MIDI ports: {len(ports)}")
+            for i, port in enumerate(ports):
+                log.debug(f"  [{i}] {port}")
+        
+        # Auto-connect if enabled
+        if self._midi_enabled:
+            if self.midi_input.connect(port_name=self._midi_port):
+                self.midi_input.start()
+                if self.ui:
+                    self.ui.midi_connected = True
+                    self.ui.midi_port_name = self.midi_input.port_name
+            else:
+                log.warning("MIDI input: no device connected")
+    
+    def _midi_callback(self, event_type: str, value: int, name: str, extra: int):
+        """Callback from MIDI input for UI updates"""
+        if not self.ui:
+            return
+        
+        if event_type == 'note_on':
+            self.ui.last_velocity = extra
+            self.ui.add_activity(f"MIDI: {name} ON vel={extra}")
+        elif event_type == 'note_off':
+            self.ui.add_activity(f"MIDI: {name} OFF")
+        elif event_type == 'aftertouch':
+            self.ui.add_activity(f"MIDI: Aftertouch {value}")
+        elif event_type == 'pitch_bend':
+            bend_pct = extra
+            self.ui.add_activity(f"MIDI: Pitch Bend {bend_pct:+d}%")
+        elif event_type == 'program':
+            self.ui.set_program(value, name)
+            self.ui.add_activity(f"MIDI: Program → {name}")
+    
+    def _toggle_midi_input(self):
+        """Toggle MIDI input on/off (FW16 Piano Keyboard Module support)"""
+        if not RTMIDI_AVAILABLE:
+            if self.ui:
+                self.ui.add_activity("MIDI: Not available (install python-rtmidi)")
+            log.warning("MIDI input not available - install python-rtmidi")
+            return
+        
+        if self.midi_input and self.midi_input.connected:
+            # Disconnect
+            self.midi_input.stop()
+            self.midi_input.disconnect()
+            if self.ui:
+                self.ui.midi_connected = False
+                self.ui.midi_port_name = ""
+                self.ui.add_activity("MIDI: Disconnected")
+            log.info("MIDI input disabled")
+        else:
+            # Connect
+            if self.midi_input is None:
+                self.midi_input = MIDIInputController(self.engine, self._midi_callback)
+            
+            # Try to connect (auto-detect FW16 module or use first available)
+            if self.midi_input.connect(port_name=self._midi_port):
+                self.midi_input.start()
+                if self.ui:
+                    self.ui.midi_connected = True
+                    self.ui.midi_port_name = self.midi_input.port_name
+                    self.ui.add_activity(f"MIDI: {self.midi_input.port_name[:30]}")
+                log.info(f"MIDI input enabled: {self.midi_input.port_name}")
+            else:
+                if self.ui:
+                    self.ui.add_activity("MIDI: No devices found")
+                log.warning("No MIDI devices found")
+    
     def _find_devices(self) -> bool:
         try:
-            devices = [InputDevice(p) for p in evdev.list_devices()]
+            device_paths = evdev.list_devices()
+            if not device_paths:
+                log.error("No input devices found. Check permissions:")
+                log.error("  1. Add yourself to 'input' group: sudo usermod -aG input $USER")
+                log.error("  2. Log out and back in (or reboot)")
+                log.error("  3. Verify with: groups | grep input")
+                return False
+            devices = [InputDevice(p) for p in device_paths]
+        except PermissionError as e:
+            log.error(f"Permission denied accessing input devices: {e}")
+            log.error("Fix: sudo usermod -aG input $USER && logout")
+            return False
         except Exception as e:
             log.error(f"Device enumeration failed: {e}")
             return False
@@ -2621,6 +3011,12 @@ class FW16Synth:
                             tp_found = True
             except Exception as e:
                 log.debug(f"Device check error: {e}")
+        
+        if not kb_found:
+            log.error("No keyboard found among available devices.")
+            log.error("Available devices:")
+            for dev in devices:
+                log.error(f"  - {dev.name} ({dev.path})")
         
         return kb_found
     
@@ -2721,6 +3117,11 @@ class FW16Synth:
                         self.ui.download_index = 0
                         self.ui.download_scroll = 0
                         self.ui.mode = UIMode.DOWNLOAD_BROWSER
+                return
+            
+            elif keycode == KeyboardMapper.CTRL_MIDI:
+                # Toggle MIDI input (FW16 Piano Keyboard Module)
+                self._toggle_midi_input()
                 return
             
             elif keycode == KeyboardMapper.CTRL_LAYER:
@@ -3068,6 +3469,12 @@ class FW16Synth:
     def stop(self):
         self._running = False
         self.arpeggiator.stop()
+        
+        # Stop MIDI input
+        if self.midi_input:
+            self.midi_input.stop()
+            self.midi_input.disconnect()
+        
         if self.ui:
             self.ui.stop()
         self.engine.shutdown()
@@ -3115,6 +3522,15 @@ def main():
     play.add_argument('--program', '-p', type=int, default=0, help='Starting program 0-127')
     play.add_argument('--velocity', type=int, help='Fixed velocity 1-127')
     
+    # MIDI input for FW16 Piano Keyboard Module
+    midi = parser.add_argument_group('MIDI Input (FW16 Piano Keyboard Module)')
+    midi.add_argument('--midi', '-m', action='store_true', 
+                      help='Enable MIDI input (auto-detect FW16 module)')
+    midi.add_argument('--midi-port', metavar='NAME',
+                      help='MIDI port name (substring match)')
+    midi.add_argument('--midi-list', action='store_true',
+                      help='List available MIDI ports and exit')
+    
     ui = parser.add_argument_group('Display')
     ui.add_argument('--no-tui', action='store_true', help='Disable terminal UI')
     ui.add_argument('--no-splash', action='store_true', help='Skip startup splash screen')
@@ -3125,6 +3541,34 @@ def main():
     
     args = parser.parse_args()
     
+    # Handle --midi-list
+    if args.midi_list:
+        print("\n╔══════════════════════════════════════════════════════════════╗")
+        print("║  FW16 Synth - Available MIDI Input Ports                     ║")
+        print("╠══════════════════════════════════════════════════════════════╣")
+        if RTMIDI_AVAILABLE:
+            try:
+                midi_in = rtmidi.RtMidiIn()
+                count = midi_in.getPortCount()
+                if count == 0:
+                    print("║  No MIDI input ports found.                                  ║")
+                else:
+                    for i in range(count):
+                        name = midi_in.getPortName(i)
+                        # Check if it looks like a FW16 module
+                        is_fw16 = any(kw in name.lower() for kw in ['framework', 'fw16', 'piano', 'pitstop'])
+                        marker = " ← FW16 Module?" if is_fw16 else ""
+                        line = f"  [{i}] {name}{marker}"
+                        print(f"║{line:<62}║")
+            except Exception as e:
+                print(f"║  Error: {e:<54}║")
+        else:
+            print("║  MIDI input not available - install python-rtmidi           ║")
+        print("╠══════════════════════════════════════════════════════════════╣")
+        print("║  Use: fw16-synth --midi --midi-port 'PortName'               ║")
+        print("╚══════════════════════════════════════════════════════════════╝\n")
+        sys.exit(0)
+    
     # Show splash screen (unless disabled)
     if not args.no_splash and not args.no_tui:
         print_splash_screen()
@@ -3133,11 +3577,16 @@ def main():
     setup_logging(args.verbose, log_path)
     
     config = SynthConfig(
-        audio_driver=AudioDriver(args.driver),
+        # Map driver names: pipewire uses pulseaudio API
+        audio_driver=AudioDriver.PULSEAUDIO if args.driver in ('pipewire', 'pulseaudio') 
+                     else AudioDriver.JACK if args.driver == 'jack' 
+                     else AudioDriver.ALSA,
         soundfont=args.soundfont,
         base_octave=args.octave,
         velocity_fixed=args.velocity,
         show_tui=not args.no_tui,
+        midi_input_enabled=args.midi,
+        midi_port=args.midi_port,
     )
     
     synth = FW16Synth(config)

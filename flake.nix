@@ -19,6 +19,7 @@
         pythonEnv = pkgs.python312.withPackages (ps: with ps; [
           evdev
           pyfluidsynth
+          python-rtmidi  # For FW16 Piano Keyboard Module support
         ]);
 
         # ═══════════════════════════════════════════════════════════════════════════

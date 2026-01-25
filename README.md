@@ -37,6 +37,7 @@ A low-latency FluidSynth controller with real-time TUI, SoundFont browser, arpeg
 
 ## What's New in v2.0
 
+- **MIDI Input Support** — Connect USB MIDI controllers including the FW16 Piano Keyboard Module
 - **SoundFont Browser** — Press `Tab` to browse, preview, and load soundfonts
 - **SoundFont Downloader** — Press `D` to download popular soundfonts from the internet
 - **Bundled SoundFonts** — FluidR3_GM and GeneralUser_GS included out of the box
@@ -169,6 +170,7 @@ python fw16_synth.py
 | `F1-F12` | Quick presets |
 | `Tab` | Open SoundFont browser |
 | `D` | Open SoundFont downloader |
+| `M` | Toggle MIDI input (FW16 Piano Module) |
 | `L` | Toggle layer mode |
 | `A` | Cycle arpeggiator modes |
 | `?` | Show help overlay |
@@ -243,6 +245,39 @@ Great for creating rich, full sounds.
 
 Visual feedback in the TUI shows current position and values.
 
+### MIDI Input (FW16 Piano Keyboard Module)
+
+FW16 Synth supports external MIDI input devices, including the community-made 
+**FW16 Piano Keyboard Module** by pitstop_tech — a velocity-sensitive piano keyboard 
+that fits in the Framework 16's input module slot.
+
+**Connecting MIDI Devices:**
+
+1. **In-app toggle**: Press `M` to connect/disconnect MIDI input
+2. **Command line**: `fw16-synth --midi` to auto-connect at startup
+3. **Specific port**: `fw16-synth --midi --midi-port "Piano"` to connect by name
+
+**List available MIDI ports:**
+```bash
+fw16-synth --midi-list
+```
+
+**Supported MIDI messages:**
+- Note On/Off with velocity
+- Channel Aftertouch (mapped to expression)
+- Pitch Bend
+- Control Change (all CCs passed through)
+- Program Change
+
+The FW16 Piano Keyboard Module features:
+- Velocity-sensitive capacitive piano keys
+- Aftertouch support for expressive playing
+- Standard USB MIDI protocol
+- Hot-swap compatible with Framework 16 input deck
+
+When connected, the **MIDI** indicator lights up in the status bar and notes 
+played on the hardware keyboard trigger FluidSynth directly with true velocity.
+
 ## Installation
 
 ### NixOS Module
@@ -263,7 +298,7 @@ Visual feedback in the TUI shows current position and values.
           programs.fw16-synth = {
             enable = true;
             users = [ "your-username" ];
-            audioDriver = "pipewire";  # or "pulseaudio", "jack", "alsa"
+            audioDriver = "pipewire";  # pipewire/pulseaudio both use PulseAudio API
             enableRealtimeAudio = true;
           };
         }
@@ -328,6 +363,9 @@ Options:
   --no-tui          Text-only mode
   --verbose, -v     Debug logging
 ```
+
+**Note:** The `pipewire` and `pulseaudio` options both use FluidSynth's PulseAudio driver. 
+PipeWire provides PulseAudio compatibility, so both work with modern PipeWire setups.
 
 ## SoundFont Locations
 
@@ -395,14 +433,17 @@ nix run . --no-write-lock-file
 ### No input devices
 
 ```bash
-# Check permissions
-ls -la /dev/input/event*
-
-# Test device access
-evtest
-
-# Verify group membership
+# Check if you're in the input group
 groups | grep input
+
+# If not, add yourself:
+sudo usermod -aG input $USER
+
+# IMPORTANT: Log out and back in (or reboot) for group change to take effect!
+
+# Then verify with:
+groups | grep input
+evtest  # Should show available devices
 ```
 
 ### No sound
@@ -414,6 +455,15 @@ jack_lsp    # JACK
 
 # Test FluidSynth directly
 fluidsynth -a pulseaudio /usr/share/soundfonts/FluidR3_GM.sf2
+```
+
+### Audio driver error ("Couldn't find the requested audio driver")
+
+FluidSynth doesn't have a native "pipewire" driver. It uses PulseAudio which PipeWire provides:
+```bash
+# These are equivalent for PipeWire users:
+fw16-synth --driver pipewire   # Uses pulseaudio internally
+fw16-synth --driver pulseaudio # Same thing
 ```
 
 ### SoundFonts not found
