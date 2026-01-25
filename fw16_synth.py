@@ -152,7 +152,9 @@ class UIMode(Enum):
     NORMAL = auto()
     HELP = auto()
     SOUNDFONT_BROWSER = auto()
+    DOWNLOAD_BROWSER = auto()
     PROGRAM_BROWSER = auto()
+    DOWNLOADING = auto()
 
 
 class ArpMode(Enum):
@@ -372,6 +374,21 @@ class SoundFontManager:
         self.current: Optional[SoundFontInfo] = None
         self.favorites: Set[str] = set()
         self.recent: List[str] = []
+        self._extra_paths: List[Path] = []
+        
+        # Add paths from environment variables (set by Nix wrapper)
+        for env_var in ['BUNDLED_SOUNDFONTS', 'NIX_SOUNDFONT_FLUID', 
+                        'NIX_SOUNDFONT_GENERALUSER', 'DEFAULT_SOUNDFONT']:
+            env_path = os.environ.get(env_var)
+            if env_path:
+                p = Path(env_path)
+                # If it's a file, use the parent directory
+                if p.is_file():
+                    p = p.parent
+                if p.exists() and p not in self._extra_paths:
+                    self._extra_paths.append(p)
+                    log.debug(f"Added soundfont path from {env_var}: {p}")
+        
         self._load_state()
     
     def _load_state(self):
@@ -401,7 +418,10 @@ class SoundFontManager:
         """Scan for available soundfonts"""
         found: Dict[str, SoundFontInfo] = {}
         
-        for base_path in self.SEARCH_PATHS:
+        # Combine standard paths with environment-provided paths
+        all_paths = list(self.SEARCH_PATHS) + self._extra_paths
+        
+        for base_path in all_paths:
             try:
                 if not base_path.exists():
                     continue
@@ -526,6 +546,358 @@ class SoundFontManager:
             categories['📁 All'].append(sf)
         
         return {k: v for k, v in categories.items() if v}
+
+
+# =============================================================================
+# SOUNDFONT DOWNLOAD CATALOG
+# =============================================================================
+
+@dataclass
+class SoundFontDownload:
+    """Information about a downloadable soundfont"""
+    name: str
+    url: str
+    filename: str
+    size_mb: float
+    description: str
+    license: str
+    quality: int  # 1-5 stars
+    category: str  # "General MIDI", "Piano", "Orchestra", etc.
+
+
+# Catalog of free, high-quality soundfonts
+SOUNDFONT_CATALOG: List[SoundFontDownload] = [
+    # ═══════════════════════════════════════════════════════════════════════════
+    # General MIDI (Full GM sets)
+    # ═══════════════════════════════════════════════════════════════════════════
+    SoundFontDownload(
+        name="FluidR3 GM",
+        url="https://keymusician01.s3.amazonaws.com/FluidR3_GM.sf2",
+        filename="FluidR3_GM.sf2",
+        size_mb=141.0,
+        description="Industry standard General MIDI soundfont. Excellent quality across all instruments.",
+        license="MIT",
+        quality=5,
+        category="General MIDI",
+    ),
+    SoundFontDownload(
+        name="GeneralUser GS",
+        url="https://www.schristiancollins.com/soundfonts/GeneralUser_GS.sf2",
+        filename="GeneralUser_GS.sf2",
+        size_mb=29.8,
+        description="Compact, high-quality GM/GS set. Great balance of size and quality.",
+        license="Free (GeneralUser License)",
+        quality=5,
+        category="General MIDI",
+    ),
+    SoundFontDownload(
+        name="TimGM6mb",
+        url="https://sourceforge.net/p/mscore/code/HEAD/tree/trunk/mscore/share/sound/TimGM6mb.sf2?format=raw",
+        filename="TimGM6mb.sf2",
+        size_mb=5.7,
+        description="Tiny but surprisingly good. Perfect for low-resource systems.",
+        license="GPL",
+        quality=3,
+        category="General MIDI",
+    ),
+    SoundFontDownload(
+        name="Arachno SoundFont",
+        url="https://www.arachnosoft.com/main/download.php?id=soundfont-sf2",
+        filename="Arachno.sf2",
+        size_mb=150.0,
+        description="Professional-grade GM set with enhanced instruments.",
+        license="Freeware",
+        quality=5,
+        category="General MIDI",
+    ),
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Piano / Keys
+    # ═══════════════════════════════════════════════════════════════════════════
+    SoundFontDownload(
+        name="Salamander Grand Piano",
+        url="https://freepats.zenvoid.org/Piano/SalamanderGrandPiano/SalamanderGrandPianoV3+20161209_48khz24bit.tar.xz",
+        filename="SalamanderGrandPiano.tar.xz",
+        size_mb=440.0,
+        description="Concert Yamaha C5 grand piano. Stunning realism with velocity layers.",
+        license="CC BY 3.0",
+        quality=5,
+        category="Piano",
+    ),
+    SoundFontDownload(
+        name="Yamaha C5 Grand (Compact)",
+        url="https://musical-artifacts.com/artifacts/433/YDP-GrandPiano-20160804.sf2",
+        filename="YDP-GrandPiano.sf2",
+        size_mb=37.0,
+        description="Compact Yamaha grand piano with good velocity response.",
+        license="CC0",
+        quality=4,
+        category="Piano",
+    ),
+    SoundFontDownload(
+        name="Nice Keys Suite",
+        url="https://musical-artifacts.com/artifacts/671/Nice-Keys-Suite-V1.sf2",
+        filename="Nice-Keys-Suite.sf2",
+        size_mb=69.0,
+        description="Collection of high-quality piano, electric piano, and organ sounds.",
+        license="CC BY 4.0",
+        quality=4,
+        category="Piano",
+    ),
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Orchestra / Strings
+    # ═══════════════════════════════════════════════════════════════════════════
+    SoundFontDownload(
+        name="Sonatina Symphonic Orchestra",
+        url="https://ftp.osuosl.org/pub/musescore/soundfont/Sonatina_Symphonic_Orchestra_SF2.zip",
+        filename="Sonatina_Symphonic_Orchestra.zip",
+        size_mb=503.0,
+        description="Full symphony orchestra with multiple articulations.",
+        license="CC BY 3.0",
+        quality=5,
+        category="Orchestra",
+    ),
+    SoundFontDownload(
+        name="Strings Section",
+        url="https://musical-artifacts.com/artifacts/1205/StringEnsemble.sf2",
+        filename="StringEnsemble.sf2",
+        size_mb=12.0,
+        description="Beautiful string ensemble for layering.",
+        license="Public Domain",
+        quality=4,
+        category="Orchestra",
+    ),
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Synth / Electronic
+    # ═══════════════════════════════════════════════════════════════════════════
+    SoundFontDownload(
+        name="Vintage Dreams Waves",
+        url="https://musical-artifacts.com/artifacts/23/Vintage_Dreams_Waves_v2.sf2",
+        filename="Vintage_Dreams_Waves.sf2",
+        size_mb=19.0,
+        description="Classic analog synth sounds: pads, leads, basses.",
+        license="CC BY 4.0",
+        quality=4,
+        category="Synth",
+    ),
+    SoundFontDownload(
+        name="SynthPad Collection",
+        url="https://musical-artifacts.com/artifacts/1371/Pads.sf2",
+        filename="Pads.sf2",
+        size_mb=8.5,
+        description="Atmospheric pads and textures.",
+        license="Public Domain",
+        quality=3,
+        category="Synth",
+    ),
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Guitar / Bass
+    # ═══════════════════════════════════════════════════════════════════════════
+    SoundFontDownload(
+        name="Acoustic Guitar",
+        url="https://musical-artifacts.com/artifacts/1089/Acoustic_Guitar.sf2",
+        filename="Acoustic_Guitar.sf2",
+        size_mb=24.0,
+        description="Nylon and steel string acoustic guitars.",
+        license="CC BY 4.0",
+        quality=4,
+        category="Guitar",
+    ),
+    SoundFontDownload(
+        name="Electric Bass Collection",
+        url="https://musical-artifacts.com/artifacts/682/Electric_Bass.sf2",
+        filename="Electric_Bass.sf2",
+        size_mb=15.0,
+        description="Fingered, picked, and slap bass sounds.",
+        license="CC BY 4.0",
+        quality=4,
+        category="Bass",
+    ),
+]
+
+
+class SoundFontDownloader:
+    """
+    Manages downloading soundfonts from the internet.
+    Downloads to ~/.local/share/soundfonts/
+    """
+    
+    DOWNLOAD_DIR = Path.home() / ".local/share/soundfonts"
+    CATALOG_CACHE = Path.home() / ".config/fw16-synth/download_cache.json"
+    
+    def __init__(self):
+        self.catalog = SOUNDFONT_CATALOG
+        self.download_dir = self.DOWNLOAD_DIR
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        self._in_progress: Dict[str, float] = {}  # filename -> progress
+    
+    def get_catalog(self, category: Optional[str] = None) -> List[SoundFontDownload]:
+        """Get available soundfonts, optionally filtered by category"""
+        if category:
+            return [sf for sf in self.catalog if sf.category == category]
+        return self.catalog
+    
+    def get_categories(self) -> List[str]:
+        """Get list of available categories"""
+        return sorted(set(sf.category for sf in self.catalog))
+    
+    def is_downloaded(self, sf: SoundFontDownload) -> bool:
+        """Check if a soundfont is already downloaded"""
+        # Check for the file or extracted version
+        target = self.download_dir / sf.filename
+        if target.exists():
+            return True
+        
+        # Check for extracted .sf2 if it's an archive
+        if sf.filename.endswith(('.zip', '.tar.xz', '.tar.gz')):
+            base = sf.filename.rsplit('.', 2)[0]
+            for ext in ['.sf2', '.SF2']:
+                if (self.download_dir / (base + ext)).exists():
+                    return True
+                # Also check without extension modifications
+                for f in self.download_dir.glob(f"*{base}*{ext}"):
+                    return True
+        
+        return False
+    
+    def get_downloaded_path(self, sf: SoundFontDownload) -> Optional[Path]:
+        """Get the path to a downloaded soundfont"""
+        target = self.download_dir / sf.filename
+        
+        # Direct .sf2 file
+        if target.exists() and target.suffix.lower() == '.sf2':
+            return target
+        
+        # Look for extracted files
+        base = sf.filename.rsplit('.', 2)[0] if '.' in sf.filename else sf.filename
+        for pattern in [f"{base}*.sf2", f"{base}*.SF2", f"*{base}*.sf2"]:
+            matches = list(self.download_dir.glob(pattern))
+            if matches:
+                return matches[0]
+        
+        return None
+    
+    def download(self, sf: SoundFontDownload, 
+                 progress_callback: Optional[Callable[[float, str], None]] = None) -> Optional[Path]:
+        """
+        Download a soundfont. Returns path on success.
+        
+        progress_callback(percent, status_message)
+        """
+        import urllib.request
+        import urllib.error
+        import shutil
+        import tarfile
+        import zipfile
+        
+        target = self.download_dir / sf.filename
+        
+        def report_progress(pct: float, msg: str):
+            if progress_callback:
+                progress_callback(pct, msg)
+            else:
+                log.info(f"Download {sf.name}: {pct:.0f}% - {msg}")
+        
+        try:
+            report_progress(0, f"Connecting to server...")
+            
+            # Download with progress
+            req = urllib.request.Request(sf.url, headers={
+                'User-Agent': 'FW16-Synth/2.0 (SoundFont Downloader)'
+            })
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                chunk_size = 8192
+                
+                report_progress(5, f"Downloading {sf.size_mb:.1f} MB...")
+                
+                with open(target, 'wb') as f:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        if total_size > 0:
+                            pct = 5 + (downloaded / total_size) * 85
+                            report_progress(pct, f"Downloaded {downloaded / 1024 / 1024:.1f} MB")
+            
+            report_progress(90, "Download complete, processing...")
+            
+            # Extract if needed
+            final_path = target
+            
+            if sf.filename.endswith('.zip'):
+                report_progress(92, "Extracting ZIP archive...")
+                with zipfile.ZipFile(target, 'r') as zf:
+                    # Find .sf2 files
+                    sf2_files = [n for n in zf.namelist() if n.lower().endswith('.sf2')]
+                    if sf2_files:
+                        zf.extractall(self.download_dir)
+                        final_path = self.download_dir / sf2_files[0]
+                target.unlink()  # Remove archive
+                
+            elif sf.filename.endswith(('.tar.xz', '.tar.gz', '.tar.bz2')):
+                report_progress(92, "Extracting TAR archive...")
+                mode = 'r:xz' if sf.filename.endswith('.xz') else \
+                       'r:gz' if sf.filename.endswith('.gz') else 'r:bz2'
+                with tarfile.open(target, mode) as tf:
+                    sf2_files = [m for m in tf.getmembers() if m.name.lower().endswith('.sf2')]
+                    if sf2_files:
+                        tf.extractall(self.download_dir)
+                        final_path = self.download_dir / sf2_files[0].name
+                target.unlink()  # Remove archive
+            
+            report_progress(100, "Complete!")
+            log.info(f"Downloaded soundfont: {final_path}")
+            return final_path
+            
+        except urllib.error.URLError as e:
+            report_progress(0, f"Network error: {e.reason}")
+            log.error(f"Failed to download {sf.name}: {e}")
+            if target.exists():
+                target.unlink()
+            return None
+            
+        except Exception as e:
+            report_progress(0, f"Error: {str(e)}")
+            log.error(f"Failed to download {sf.name}: {e}")
+            if target.exists():
+                target.unlink()
+            return None
+    
+    def download_essential(self, 
+                          progress_callback: Optional[Callable[[str, float, str], None]] = None) -> List[Path]:
+        """
+        Download a curated set of essential soundfonts.
+        
+        progress_callback(soundfont_name, percent, status)
+        Returns list of downloaded paths.
+        """
+        essential = [
+            "GeneralUser GS",  # Best balance of size/quality
+            "Nice Keys Suite",  # Good piano/keys
+        ]
+        
+        downloaded = []
+        for name in essential:
+            sf = next((s for s in self.catalog if s.name == name), None)
+            if sf and not self.is_downloaded(sf):
+                def cb(pct, msg):
+                    if progress_callback:
+                        progress_callback(sf.name, pct, msg)
+                
+                path = self.download(sf, cb)
+                if path:
+                    downloaded.append(path)
+        
+        return downloaded
 
 
 # =============================================================================
@@ -832,6 +1204,14 @@ class TerminalUI:
         self.browser_index: int = 0
         self.browser_scroll: int = 0
         self.browser_category: int = 0
+        
+        # Download browser state
+        self.download_items: List[Any] = []
+        self.download_index: int = 0
+        self.download_scroll: int = 0
+        self.download_progress: float = 0.0
+        self.download_status: str = ""
+        self.download_active: bool = False
         
         # Performance
         self.latency_ms: float = 0.0
@@ -1177,7 +1557,7 @@ class TerminalUI:
         lines = []
         
         # Help hints
-        help_text = "[?] Help  [Tab] SoundFonts  [+/-] Oct  [Shift+</>] Trans  [L] Layer  [A] Arp"
+        help_text = "[?] Help  [Tab] Browse  [D] Download  [L] Layer  [A] Arp  [+/-] Oct"
         
         lines.append(
             f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET} "
@@ -1408,6 +1788,189 @@ class TerminalUI:
         return lines
     
     # ─────────────────────────────────────────────────────────────────────────
+    # Download browser
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    def _render_download_browser(self) -> List[str]:
+        lines = []
+        w = self._width
+        
+        # Header
+        wave = WAVE_CHAR * (w - 2)
+        lines.append(f"{Color.TURQUOISE}{self.DBL_TL}{Color.DARK_GRAY}{wave}{Color.TURQUOISE}{self.DBL_TR}{Color.RESET}")
+        
+        lines.append(
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            f"{Color.TURQUOISE_BRIGHT}{Color.BOLD}{'SOUNDFONT DOWNLOADER':^{w - 2}}{Color.RESET}"
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+        )
+        
+        lines.append(
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            f"{Color.DARK_GRAY}{'[↑/↓] Select  [Enter] Download  [D] Close':^{w - 2}}{Color.RESET}"
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+        )
+        
+        lines.append(
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            f"{Color.DARK_GRAY}{self.BOX_H * (w - 2)}{Color.RESET}"
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+        )
+        
+        # Download list
+        visible_count = 12
+        
+        if not self.download_items:
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                f"{Color.GRAY}{'Loading catalog...':^{w - 2}}{Color.RESET}"
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+        else:
+            # Ensure scroll keeps selection visible
+            if self.download_index < self.download_scroll:
+                self.download_scroll = self.download_index
+            elif self.download_index >= self.download_scroll + visible_count:
+                self.download_scroll = self.download_index - visible_count + 1
+            
+            for i in range(visible_count):
+                idx = self.download_scroll + i
+                if idx >= len(self.download_items):
+                    lines.append(
+                        f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                        f"{' ' * (w - 2)}"
+                        f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                    )
+                    continue
+                
+                sf = self.download_items[idx]
+                is_selected = (idx == self.download_index)
+                
+                # Check if downloaded
+                downloaded = hasattr(sf, '_downloaded') and sf._downloaded
+                
+                # Build line
+                if downloaded:
+                    status = f"{Color.GREEN}✓{Color.RESET}"
+                else:
+                    status = f"{Color.DARK_GRAY}○{Color.RESET}"
+                
+                quality = "★" * sf.quality + "☆" * (5 - sf.quality)
+                
+                # Category color
+                cat_colors = {
+                    "General MIDI": Color.TURQUOISE,
+                    "Piano": Color.VIOLET,
+                    "Orchestra": Color.MAGENTA,
+                    "Synth": Color.GREEN,
+                    "Guitar": Color.ORANGE,
+                    "Bass": Color.YELLOW,
+                }
+                cat_color = cat_colors.get(sf.category, Color.GRAY)
+                
+                name_part = f"{sf.name[:28]:<28}"
+                size_part = f"{sf.size_mb:>6.1f}MB"
+                cat_part = f"{sf.category[:10]:<10}"
+                
+                if is_selected:
+                    line = (
+                        f"{Color.BG_VIOLET}{Color.WHITE} {status} "
+                        f"{name_part} "
+                        f"{Color.GRAY}{quality}{Color.RESET}{Color.BG_VIOLET} "
+                        f"{size_part} "
+                        f"{cat_color}{cat_part}{Color.RESET}"
+                    )
+                else:
+                    line = (
+                        f" {status} "
+                        f"{Color.WHITE}{name_part}{Color.RESET} "
+                        f"{Color.YELLOW}{quality}{Color.RESET} "
+                        f"{Color.GRAY}{size_part}{Color.RESET} "
+                        f"{cat_color}{cat_part}{Color.RESET}"
+                    )
+                
+                # Pad and add borders
+                pad = w - self._visible_len(line) - 2
+                lines.append(
+                    f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                    f"{line}{' ' * max(0, pad)}"
+                    f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                )
+        
+        # Description of selected item
+        lines.append(
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            f"{Color.DARK_GRAY}{self.BOX_H * (w - 2)}{Color.RESET}"
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+        )
+        
+        if self.download_items and 0 <= self.download_index < len(self.download_items):
+            sf = self.download_items[self.download_index]
+            desc = sf.description[:w - 6]
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET} "
+                f"{Color.GRAY}{desc:<{w - 4}}{Color.RESET}"
+                f" {Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+            license_info = f"License: {sf.license}"
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET} "
+                f"{Color.DARK_GRAY}{license_info:<{w - 4}}{Color.RESET}"
+                f" {Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+        else:
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                f"{' ' * (w - 2)}"
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                f"{' ' * (w - 2)}"
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+        
+        # Download progress (if active)
+        if self.download_active:
+            prog_w = w - 20
+            filled = int(self.download_progress / 100 * prog_w)
+            bar = f"{Color.GREEN}{'█' * filled}{Color.DARK_GRAY}{'░' * (prog_w - filled)}{Color.RESET}"
+            pct = f"{self.download_progress:5.1f}%"
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET} "
+                f"{Color.WHITE}Downloading:{Color.RESET} {bar} {pct} "
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+            status_line = self.download_status[:w - 6]
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET} "
+                f"{Color.GRAY}{status_line:<{w - 4}}{Color.RESET}"
+                f" {Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+        else:
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                f"{' ' * (w - 2)}"
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+            lines.append(
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+                f"{' ' * (w - 2)}"
+                f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            )
+        
+        # Footer with branding
+        lines.append(
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+            f"{Color.DARK_GRAY}{'Downloads to ~/.local/share/soundfonts/':^{w - 2}}{Color.RESET}"
+            f"{Color.TURQUOISE}{self.DBL_V}{Color.RESET}"
+        )
+        
+        lines.append(f"{Color.TURQUOISE}{self.DBL_BL}{Color.DARK_GRAY}{wave}{Color.TURQUOISE}{self.DBL_BR}{Color.RESET}")
+        
+        return lines
+    
+    # ─────────────────────────────────────────────────────────────────────────
     # Main render
     # ─────────────────────────────────────────────────────────────────────────
     
@@ -1417,6 +1980,8 @@ class TerminalUI:
                 return '\n'.join(self._render_help())
             elif self.mode == UIMode.SOUNDFONT_BROWSER:
                 return '\n'.join(self._render_soundfont_browser())
+            elif self.mode == UIMode.DOWNLOAD_BROWSER:
+                return '\n'.join(self._render_download_browser())
             else:
                 lines = []
                 lines.extend(self._render_header())
@@ -1562,6 +2127,7 @@ class KeyboardMapper:
     CTRL_LAYER = ecodes.KEY_L
     CTRL_ARP = ecodes.KEY_A
     CTRL_SOUNDFONT = ecodes.KEY_TAB
+    CTRL_DOWNLOAD = ecodes.KEY_D
     CTRL_FAVORITE = ecodes.KEY_F
     
     NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -1963,6 +2529,7 @@ class FW16Synth:
         
         # Components
         self.sf_manager = SoundFontManager()
+        self.sf_downloader = SoundFontDownloader()
         self.engine = FluidSynthEngine(config)
         self.smoother = ParameterSmoother(config.touchpad_smoothing)
         self.touchpad = TouchpadController(config, self.smoother)
@@ -2072,6 +2639,11 @@ class FW16Synth:
                 self._handle_browser_key(keycode)
                 return
             
+            # Download browser mode
+            if self.ui and self.ui.mode == UIMode.DOWNLOAD_BROWSER:
+                self._handle_download_browser_key(keycode)
+                return
+            
             # Help mode - any key closes
             if self.ui and self.ui.mode == UIMode.HELP:
                 self.ui.mode = UIMode.NORMAL
@@ -2134,6 +2706,21 @@ class FW16Synth:
                         self.ui.mode = UIMode.NORMAL
                     else:
                         self.ui.mode = UIMode.SOUNDFONT_BROWSER
+                return
+            
+            elif keycode == KeyboardMapper.CTRL_DOWNLOAD:
+                if self.ui:
+                    if self.ui.mode == UIMode.DOWNLOAD_BROWSER:
+                        self.ui.mode = UIMode.NORMAL
+                    else:
+                        # Populate download catalog
+                        catalog = self.sf_downloader.get_catalog()
+                        for sf in catalog:
+                            sf._downloaded = self.sf_downloader.is_downloaded(sf)
+                        self.ui.download_items = catalog
+                        self.ui.download_index = 0
+                        self.ui.download_scroll = 0
+                        self.ui.mode = UIMode.DOWNLOAD_BROWSER
                 return
             
             elif keycode == KeyboardMapper.CTRL_LAYER:
@@ -2230,6 +2817,73 @@ class FW16Synth:
                 self.ui.browser_items = self.sf_manager.soundfonts
         
         elif keycode in (ecodes.KEY_ESC, ecodes.KEY_TAB):
+            self.ui.mode = UIMode.NORMAL
+    
+    def _handle_download_browser_key(self, keycode: int):
+        """Handle key in download browser"""
+        if not self.ui:
+            return
+        
+        items = self.ui.download_items
+        
+        if keycode == ecodes.KEY_UP:
+            self.ui.download_index = max(0, self.ui.download_index - 1)
+        
+        elif keycode == ecodes.KEY_DOWN:
+            self.ui.download_index = min(len(items) - 1, self.ui.download_index + 1)
+        
+        elif keycode == ecodes.KEY_PAGEUP:
+            self.ui.download_index = max(0, self.ui.download_index - 10)
+        
+        elif keycode == ecodes.KEY_PAGEDOWN:
+            self.ui.download_index = min(len(items) - 1, self.ui.download_index + 10)
+        
+        elif keycode == ecodes.KEY_ENTER:
+            if 0 <= self.ui.download_index < len(items):
+                sf = items[self.ui.download_index]
+                
+                # Check if already downloaded
+                if self.sf_downloader.is_downloaded(sf):
+                    # Load the already-downloaded soundfont
+                    path = self.sf_downloader.get_downloaded_path(sf)
+                    if path and self.engine.load_soundfont(path):
+                        self.sf_manager.scan()  # Rescan to include new font
+                        self.sf_manager.set_current(path)
+                        self.ui.set_soundfont(path.stem, str(path))
+                        self.ui.browser_items = self.sf_manager.soundfonts
+                        self.ui.mode = UIMode.NORMAL
+                        self.ui.log(f"Loaded: {sf.name}")
+                else:
+                    # Start download in background
+                    self.ui.download_active = True
+                    self.ui.download_progress = 0
+                    self.ui.download_status = "Starting download..."
+                    
+                    def progress_callback(pct, msg):
+                        self.ui.download_progress = pct
+                        self.ui.download_status = msg
+                    
+                    # Run download in thread to not block UI
+                    import threading
+                    def do_download():
+                        try:
+                            path = self.sf_downloader.download(sf, progress_callback)
+                            if path:
+                                sf._downloaded = True
+                                self.ui.download_status = f"Downloaded: {sf.name}"
+                                # Rescan soundfonts
+                                self.sf_manager.scan()
+                                self.ui.browser_items = self.sf_manager.soundfonts
+                                self.ui.log(f"Downloaded: {sf.name}")
+                            else:
+                                self.ui.download_status = "Download failed!"
+                        finally:
+                            self.ui.download_active = False
+                    
+                    thread = threading.Thread(target=do_download, daemon=True)
+                    thread.start()
+        
+        elif keycode in (ecodes.KEY_ESC, ecodes.KEY_D):
             self.ui.mode = UIMode.NORMAL
     
     def _handle_touchpad_event(self, event):

@@ -38,6 +38,8 @@ A low-latency FluidSynth controller with real-time TUI, SoundFont browser, arpeg
 ## What's New in v2.0
 
 - **SoundFont Browser** — Press `Tab` to browse, preview, and load soundfonts
+- **SoundFont Downloader** — Press `D` to download popular soundfonts from the internet
+- **Bundled SoundFonts** — FluidR3_GM and GeneralUser_GS included out of the box
 - **Help Overlay** — Press `?` for quick reference
 - **Arpeggiator** — Press `A` to cycle through Up/Down/UpDown/Random modes
 - **Layer Mode** — Press `L` to play two instruments simultaneously  
@@ -45,6 +47,17 @@ A low-latency FluidSynth controller with real-time TUI, SoundFont browser, arpeg
 - **Velocity Meter** — Real-time velocity visualization
 - **Chord Display** — See currently held notes
 - **Favorites** — Star your favorite soundfonts
+
+## Bundled SoundFonts
+
+The Nix package includes high-quality soundfonts ready to use:
+
+| SoundFont | Size | Description |
+|-----------|------|-------------|
+| **FluidR3_GM** | 141 MB | Industry standard General MIDI |
+| **GeneralUser_GS** | 30 MB | Excellent quality, compact GM/GS set |
+
+Press `D` in-app to download additional soundfonts including pianos, orchestras, and synths!
 
 ## Quick Start
 
@@ -155,6 +168,7 @@ python fw16_synth.py
 | `Page Up/Down` | Previous/next instrument |
 | `F1-F12` | Quick presets |
 | `Tab` | Open SoundFont browser |
+| `D` | Open SoundFont downloader |
 | `L` | Toggle layer mode |
 | `A` | Cycle arpeggiator modes |
 | `?` | Show help overlay |
@@ -318,14 +332,41 @@ Options:
 ## SoundFont Locations
 
 The browser searches:
-- `~/.local/share/soundfonts/`
+- `~/.local/share/soundfonts/` (download destination)
 - `~/soundfonts/`
 - `~/Music/soundfonts/`
 - `/usr/share/soundfonts/`
 - `/usr/share/sounds/sf2/`
-- `/nix/store/*soundfont*/` (Nix)
+- `/nix/store/*soundfont*/` (Nix bundled)
+- Environment paths (BUNDLED_SOUNDFONTS, etc.)
 
 State saved to `~/.config/fw16-synth/soundfonts.json`
+
+## Downloadable SoundFonts
+
+Press `D` to open the download browser. Available soundfonts:
+
+### General MIDI
+| Name | Size | Quality | Description |
+|------|------|---------|-------------|
+| FluidR3 GM | 141 MB | ★★★★★ | Industry standard, excellent across all instruments |
+| GeneralUser GS | 30 MB | ★★★★★ | Compact yet high-quality GM/GS set |
+| TimGM6mb | 6 MB | ★★★☆☆ | Tiny but surprisingly good for low-resource systems |
+
+### Piano / Keys
+| Name | Size | Quality | Description |
+|------|------|---------|-------------|
+| Salamander Grand | 440 MB | ★★★★★ | Concert Yamaha C5 with velocity layers |
+| YDP Grand Piano | 37 MB | ★★★★☆ | Compact Yamaha grand piano |
+| Nice Keys Suite | 69 MB | ★★★★☆ | Piano, electric piano, and organ collection |
+
+### Orchestra / Synth
+| Name | Size | Quality | Description |
+|------|------|---------|-------------|
+| Sonatina Orchestra | 503 MB | ★★★★★ | Full symphony with multiple articulations |
+| Vintage Dreams Waves | 19 MB | ★★★★☆ | Classic analog synth sounds |
+
+Downloads are saved to `~/.local/share/soundfonts/`
 
 ## Performance
 
