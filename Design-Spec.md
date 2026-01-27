@@ -1,22 +1,3 @@
-Reasoning: The user wants a detailed and professional design specification for the FW16 Synth system that covers nuances. This should be comprehensive, covering all aspects of the system including architecture, interfaces, data flows, edge cases, performance considerations, security, and more. I'll create a thorough design specification document that would be suitable for a professional software development team.
-
-I should include:
-1. Executive overview
-2. System architecture 
-3. Component specifications
-4. Interface definitions
-5. Data flow diagrams (described textually)
-6. State management
-7. Error handling strategies
-8. Performance requirements
-9. Security model
-10. Testing strategy
-11. Deployment architecture
-12. Edge cases and nuances
-13. Future extensibility
-
-Let me create a comprehensive design specification document.
-
 # FW16 Synth v2.1 - Detailed Design Specification
 
 **Document Version**: 1.0  
