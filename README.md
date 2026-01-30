@@ -288,22 +288,28 @@ fw16-synth/
 │   ├── health_monitor.py    # System health monitoring (thread-safe)
 │   ├── synth_controller.py  # Production wrapper
 │   └── config_validator.py  # Configuration validation
-├── engine/                # Audio engine module (NEW)
+├── engine/                # Audio engine module
 │   ├── __init__.py
 │   └── fluidsynth_engine.py
-├── soundfont/             # SoundFont management module (NEW)
+├── soundfont/             # SoundFont management module
 │   ├── __init__.py
 │   └── manager.py
-├── input/                 # Input handling module (NEW)
-│   └── __init__.py
-├── midi/                  # MIDI handling module (NEW)
-│   └── __init__.py
-├── ui/                    # UI components module (NEW)
+├── input/                 # Input handling module
+│   ├── __init__.py
+│   ├── keyboard_input.py    # Keyboard mapper, velocity tracker (240 lines)
+│   └── touchpad_input.py    # Touchpad controller, calibration (131 lines)
+├── midi/                  # MIDI handling module
+│   ├── __init__.py
+│   └── midi_handler.py     # MIDI input controller, message parser (291 lines)
+├── ui/                    # UI components module
 │   └── __init__.py
 ├── tests/                  # Test suite
-│   ├── README.md          # Test documentation (NEW)
-│   ├── test_nix_compatible.py  # Nix-compatible tests (NEW)
-│   └── ...
+│   ├── README.md          # Test documentation
+│   ├── test_nix_compatible.py  # Nix-compatible tests (25 tests)
+│   ├── test_extended_coverage.py  # Extended tests (26 tests)
+│   ├── test_core_functionality.py  # Core functionality tests
+│   ├── test_production_modules.py  # Production module tests
+│   └── test_glitch_prevention.py  # Glitch prevention tests
 ├── docs/                   # Documentation
 └── scripts/                # Utility scripts
 ```
