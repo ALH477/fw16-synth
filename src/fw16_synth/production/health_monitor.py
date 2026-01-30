@@ -37,6 +37,7 @@ class HealthMetrics:
     notes_played: int = 0
     errors_count: int = 0
     start_time: float = field(default_factory=time.time)
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 @dataclass
@@ -72,7 +73,7 @@ class ProductionHealthMonitor:
         self.health_callbacks: List[Callable] = []
         
         # Alerts
-        self.alerts_sent = set()
+        self.alerts_sent: Dict[str, float] = {}
         self.alert_cooldown = 300.0  # seconds
         
         try:
@@ -147,24 +148,26 @@ class ProductionHealthMonitor:
         """Record an error event"""
         current_time = time.time()
         
-        # Calculate error rate (errors per second over last minute)
-        recent_errors = sum(1 for i in range(60) 
-                          if current_time - i < self.metrics.start_time)
-        error_rate = recent_errors / 60.0
-        
-        self.metrics.error_rate.append(error_rate)
-        self.metrics.errors_count += 1
+        with self.metrics.lock:
+            self.metrics.errors_count += 1
+            
+            # Calculate error rate based on total errors and uptime
+            uptime = current_time - self.metrics.start_time
+            error_rate = (self.metrics.errors_count / max(uptime, 1.0))
+            
+            self.metrics.error_rate.append(error_rate)
         
         self.logger.debug(f"Error recorded: {error_context} (rate: {error_rate:.3f}/s)")
     
     def record_velocity(self, velocity: int, source: str):
         """Record velocity measurement"""
-        velocity_bucket = (velocity // 10) * 10  # Group by 10s
-        self.metrics.velocity_distribution[velocity_bucket] = (
-            self.metrics.velocity_distribution.get(velocity_bucket, 0) + 1
-        )
-        
-        self.metrics.notes_played += 1
+        with self.metrics.lock:
+            velocity_bucket = (velocity // 10) * 10  # Group by 10s
+            self.metrics.velocity_distribution[velocity_bucket] = (
+                self.metrics.velocity_distribution.get(velocity_bucket, 0) + 1
+            )
+            
+            self.metrics.notes_played += 1
     
     def record_note_on(self):
         """Record a note-on event"""

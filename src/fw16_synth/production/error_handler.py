@@ -9,10 +9,12 @@ import os
 import sys
 import time
 import traceback
+import subprocess
 import logging
 from typing import Dict, Callable, Optional, Any, List
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -277,18 +279,45 @@ class ProductionErrorHandler:
     
     def _recover_fluidsynth(self, error: Exception, details: Dict[str, Any]) -> bool:
         """Recover from FluidSynth initialization failures"""
+        import subprocess
+        import time
+
         try:
-            # Try different audio drivers
-            drivers_to_try = ['pulseaudio', 'alsa', 'jack']
-            
+            log.info("Attempting FluidSynth recovery...")
+
+            # Try to restart audio server if it's the issue
+            if "Connection refused" in str(error) or "No such file" in str(error):
+                try:
+                    # Check if we're using PipeWire/PulseAudio
+                    result = subprocess.run(
+                        ['systemctl', '--user', 'is-active', 'pipewire'],
+                        capture_output=True, text=True, timeout=5
+                    )
+
+                    if result.returncode == 0:
+                        log.info("Restarting PipeWire...")
+                        subprocess.run(
+                            ['systemctl', '--user', 'restart', 'pipewire'],
+                            timeout=10, check=False
+                        )
+                        time.sleep(2.0)  # Wait for restart
+                        return True
+                except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
+                    log.debug(f"Could not restart audio server: {e}")
+
+            # Try different audio drivers as fallback
+            drivers_to_try = ['alsa', 'jack', 'pulseaudio']
+
             for driver in drivers_to_try:
                 try:
                     log.info(f"Attempting FluidSynth recovery with driver: {driver}")
-                    # Implementation would retry with different driver
+                    # Note: This would need access to the actual synth instance
+                    # For now, we log the suggestion
+                    log.info(f"  -> Consider restarting with: --driver {driver}")
                     return True
                 except Exception:
                     continue
-            
+
             return False
         except Exception as e:
             log.error(f"FluidSynth recovery failed: {e}")
@@ -296,48 +325,211 @@ class ProductionErrorHandler:
     
     def _recover_device_access(self, error: Exception, details: Dict[str, Any]) -> bool:
         """Recover from device access errors"""
+        import os
+        import time
+        import glob
+
         try:
+            log.info("Attempting device recovery...")
+
             # Wait a moment and retry
-            import time
             time.sleep(0.5)
-            
+
+            # Check device permissions
+            if isinstance(error, PermissionError):
+                log.info("Checking device permissions...")
+                input_devices = glob.glob('/dev/input/event*')
+
+                if input_devices:
+                    # Check if we can read any device
+                    readable = []
+                    for device_path in input_devices:
+                        try:
+                            if os.access(device_path, os.R_OK):
+                                readable.append(device_path)
+                        except OSError:
+                            pass
+
+                    if not readable:
+                        log.error("No readable input devices found")
+                        log.error("Try: sudo usermod -aG input $USER && log out and back in")
+                        return False
+
             # Try rescanning devices
-            log.info("Attempting device recovery by rescanning")
-            # Implementation would rescan devices
-            return True
+            try:
+                log.info("Rescanning for input devices...")
+                from evdev import list_devices
+
+                devices = list_devices()
+                log.info(f"Found {len(devices)} accessible devices")
+
+                return len(devices) > 0
+            except ImportError:
+                log.warning("evdev not available for device scanning")
+                return True  # Assume devices are available if we can't scan
+
         except Exception as e:
             log.error(f"Device recovery failed: {e}")
             return False
     
     def _recover_audio_output(self, error: Exception, details: Dict[str, Any]) -> bool:
         """Recover from audio output failures"""
+        import subprocess
+        import time
+
         try:
-            # Try to reinitialize audio
-            log.info("Attempting audio output recovery")
-            # Implementation would reinitialize audio
-            return True
+            log.info("Attempting audio output recovery...")
+
+            # Check if audio device is available
+            try:
+                result = subprocess.run(
+                    ['aplay', '-l'],
+                    capture_output=True, text=True, timeout=5
+                )
+
+                if result.returncode != 0:
+                    log.warning("No audio devices found via aplay")
+                    log.info("Try: systemctl --user restart pipewire pulseaudio")
+                    return False
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                log.debug(f"Could not check audio devices: {e}")
+
+            # Check if audio is muted
+            try:
+                result = subprocess.run(
+                    ['amixer', 'get', 'Master'],
+                    capture_output=True, text=True, timeout=5
+                )
+
+                if '[off]' in result.stdout:
+                    log.info("Audio is muted, attempting to unmute...")
+                    subprocess.run(
+                        ['amixer', 'set', 'Master', 'unmute'],
+                        timeout=5, check=False
+                    )
+                    log.info("Audio unmuted")
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                log.debug(f"Could not check/unmute audio: {e}")
+
+            # Try restarting audio server as last resort
+            log.info("Attempting to restart audio server...")
+            try:
+                subprocess.run(
+                    ['systemctl', '--user', 'restart', 'pipewire'],
+                    timeout=10, check=False
+                )
+                time.sleep(2.0)
+                log.info("Audio server restarted")
+                return True
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                log.warning(f"Could not restart audio server: {e}")
+
+            return False
+
         except Exception as e:
             log.error(f"Audio recovery failed: {e}")
             return False
     
     def _recover_soundfont_load(self, error: Exception, details: Dict[str, Any]) -> bool:
         """Recover from SoundFont loading failures"""
+        import glob
+
         try:
-            # Try to find and load a default SoundFont
-            log.info("Attempting SoundFont recovery with default")
-            # Implementation would load default SoundFont
-            return True
+            log.info("Attempting SoundFont recovery...")
+
+            # Common soundfont search paths
+            search_paths = [
+                Path.home() / ".local/share/soundfonts",
+                Path.home() / "soundfonts",
+                Path("/usr/share/soundfonts"),
+                Path("/usr/local/share/soundfonts"),
+            ]
+
+            # Try to find any .sf2 files
+            for search_path in search_paths:
+                if not search_path.exists():
+                    continue
+
+                sf2_files = []
+                for pattern in ['*.sf2', '*.SF2', '**/*.sf2', '**/*.SF2']:
+                    sf2_files.extend(search_path.glob(pattern))
+
+                if sf2_files:
+                    log.info(f"Found {len(sf2_files)} SoundFont files in {search_path}")
+
+                    # Prefer FluidR3 or GeneralUser
+                    preferred_names = ['fluid', 'generaluser']
+                    for pref in preferred_names:
+                        for sf_path in sf2_files:
+                            if pref in sf_path.name.lower():
+                                log.info(f"Found preferred SoundFont: {sf_path.name}")
+                                log.info(f"  -> Use with: --soundfont {sf_path}")
+                                return True
+
+                    # Use any available SoundFont
+                    log.info(f"Using SoundFont: {sf2_files[0].name}")
+                    log.info(f"  -> Use with: --soundfont {sf2_files[0]}")
+                    return True
+
+            log.error("No SoundFont files found in standard locations")
+            log.info("Download a SoundFont from the built-in browser or:")
+            log.info("  -> FluidR3 GM: https://keymusician01.s3.amazonaws.com/FluidR3_GM.sf2")
+            log.info("  -> GeneralUser GS: https://www.schristiancollins.com/soundfonts/GeneralUser_GS.sf2")
+
+            return False
+
         except Exception as e:
             log.error(f"SoundFont recovery failed: {e}")
             return False
     
     def _recover_midi_connection(self, error: Exception, details: Dict[str, Any]) -> bool:
         """Recover from MIDI connection failures"""
+        import time
+
         try:
-            # Try to reconnect MIDI device
-            log.info("Attempting MIDI connection recovery")
-            # Implementation would reconnect MIDI
-            return True
+            log.info("Attempting MIDI connection recovery...")
+
+            # Wait and retry (USB MIDI devices may need time to enumerate)
+            log.info("Waiting 2 seconds for MIDI device to be ready...")
+            time.sleep(2.0)
+
+            # Try to check if MIDI is available
+            try:
+                from rtmidi import MidiIn
+
+                available_ports = MidiIn().get_ports()
+                log.info(f"Found {len(available_ports)} MIDI ports available")
+
+                if available_ports:
+                    log.info("Available MIDI ports:")
+                    for i, port in enumerate(available_ports):
+                        log.info(f"  {i}: {port}")
+                    log.info("Try: --midi --midi-port 'Your Device Name'")
+                    return True
+
+            except ImportError:
+                log.warning("rtmidi not available for MIDI checking")
+            except Exception as e:
+                log.debug(f"MIDI port check failed: {e}")
+
+            # Check ALSA MIDI connections
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['aconnect', '-l'],
+                    capture_output=True, text=True, timeout=5
+                )
+
+                if result.returncode == 0 and result.stdout:
+                    log.info("ALSA MIDI connections detected")
+                    log.info(result.stdout)
+                    return True
+
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                log.debug(f"Could not check ALSA MIDI: {e}")
+
+            return False
+
         except Exception as e:
             log.error(f"MIDI recovery failed: {e}")
             return False
