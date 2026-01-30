@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import json
 
 try:
@@ -17,6 +17,99 @@ try:
     HAS_YAML = True
 except ImportError:
     HAS_YAML = False
+
+
+# Validation functions
+def validate_audio_config(audio: AudioConfig) -> Tuple[bool, str]:
+    """Validate AudioConfig parameters"""
+    valid_drivers = ['pipewire', 'pulseaudio', 'jack', 'alsa']
+    if audio.driver not in valid_drivers:
+        return False, f"Invalid driver: {audio.driver}. Must be one of {valid_drivers}"
+
+    if audio.sample_rate <= 0 or audio.sample_rate > 192000:
+        return False, f"Invalid sample_rate: {audio.sample_rate}. Must be between 1 and 192000"
+
+    return True, ""
+
+
+def validate_velocity_config(vel: VelocityConfig) -> Tuple[bool, str]:
+    """Validate VelocityConfig parameters"""
+    if vel.min < 0 or vel.min > 127:
+        return False, f"Invalid velocity min: {vel.min}. Must be between 0 and 127"
+
+    if vel.max < 0 or vel.max > 127:
+        return False, f"Invalid velocity max: {vel.max}. Must be between 0 and 127"
+
+    if vel.min > vel.max:
+        return False, f"Velocity min ({vel.min}) cannot be greater than max ({vel.max})"
+
+    if vel.time_min <= 0:
+        return False, f"Invalid time_min: {vel.time_min}. Must be greater than 0"
+
+    if vel.time_max <= 0:
+        return False, f"Invalid time_max: {vel.time_max}. Must be greater than 0"
+
+    if vel.time_min >= vel.time_max:
+        return False, f"time_min ({vel.time_min}) must be less than time_max ({vel.time_max})"
+
+    return True, ""
+
+
+def validate_keyboard_config(kb: KeyboardConfig) -> Tuple[bool, str]:
+    """Validate KeyboardConfig parameters"""
+    if kb.base_octave < 0 or kb.base_octave > 8:
+        return False, f"Invalid base_octave: {kb.base_octave}. Must be between 0 and 8"
+
+    valid, msg = validate_velocity_config(kb.velocity)
+    if not valid:
+        return False, f"Invalid velocity config: {msg}"
+
+    return True, ""
+
+
+def validate_touchpad_config(tp: TouchpadConfig) -> Tuple[bool, str]:
+    """Validate TouchpadConfig parameters"""
+    for axis_name, axis in [('x', tp.x), ('y', tp.y), ('pressure', tp.pressure)]:
+        if axis.cc is not None and (axis.cc < 0 or axis.cc > 127):
+            return False, f"Invalid touchpad {axis_name} cc: {axis.cc}. Must be between 0 and 127"
+
+    return True, ""
+
+
+def validate_midi_config(midi: MidiConfig) -> Tuple[bool, str]:
+    """Validate MidiConfig parameters"""
+    if midi.channel < 0 or midi.channel > 15:
+        return False, f"Invalid MIDI channel: {midi.channel}. Must be between 0 and 15"
+
+    return True, ""
+
+
+def validate_full_config(config: FullConfig) -> Tuple[bool, List[str]]:
+    """
+    Validate all configuration sections
+
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+
+    valid, msg = validate_audio_config(config.audio)
+    if not valid:
+        errors.append(f"Audio: {msg}")
+
+    valid, msg = validate_keyboard_config(config.keyboard)
+    if not valid:
+        errors.append(f"Keyboard: {msg}")
+
+    valid, msg = validate_touchpad_config(config.touchpad)
+    if not valid:
+        errors.append(f"Touchpad: {msg}")
+
+    valid, msg = validate_midi_config(config.midi)
+    if not valid:
+        errors.append(f"MIDI: {msg}")
+
+    return len(errors) == 0, errors
 
 
 # Default configuration as YAML template
@@ -345,5 +438,101 @@ if __name__ == "__main__":
         config = load_config()
         if HAS_YAML:
             print(yaml.dump(asdict(config), default_flow_style=False))
-        else:
-            print(json.dumps(asdict(config), indent=2))
+    else:
+        print(json.dumps(asdict(config), indent=2))
+
+
+# =============================================================================
+# CONFIGURATION VALIDATION
+# =============================================================================
+
+def validate_audio_config(audio: AudioConfig) -> Tuple[bool, str]:
+    """Validate AudioConfig parameters"""
+    valid_drivers = ['pipewire', 'pulseaudio', 'jack', 'alsa']
+    if audio.driver not in valid_drivers:
+        return False, f"Invalid driver: {audio.driver}. Must be one of {valid_drivers}"
+
+    if audio.sample_rate <= 0 or audio.sample_rate > 192000:
+        return False, f"Invalid sample_rate: {audio.sample_rate}. Must be between 1 and 192000"
+
+    return True, ""
+
+
+def validate_velocity_config(vel: VelocityConfig) -> Tuple[bool, str]:
+    """Validate VelocityConfig parameters"""
+    if vel.min < 0 or vel.min > 127:
+        return False, f"Invalid velocity min: {vel.min}. Must be between 0 and 127"
+
+    if vel.max < 0 or vel.max > 127:
+        return False, f"Invalid velocity max: {vel.max}. Must be between 0 and 127"
+
+    if vel.min > vel.max:
+        return False, f"Velocity min ({vel.min}) cannot be greater than max ({vel.max})"
+
+    if vel.time_min <= 0:
+        return False, f"Invalid time_min: {vel.time_min}. Must be greater than 0"
+
+    if vel.time_max <= 0:
+        return False, f"Invalid time_max: {vel.time_max}. Must be greater than 0"
+
+    if vel.time_min >= vel.time_max:
+        return False, f"time_min ({vel.time_min}) must be less than time_max ({vel.time_max})"
+
+    return True, ""
+
+
+def validate_keyboard_config(kb: KeyboardConfig) -> Tuple[bool, str]:
+    """Validate KeyboardConfig parameters"""
+    if kb.base_octave < 0 or kb.base_octave > 8:
+        return False, f"Invalid base_octave: {kb.base_octave}. Must be between 0 and 8"
+
+    valid, msg = validate_velocity_config(kb.velocity)
+    if not valid:
+        return False, f"Invalid velocity config: {msg}"
+
+    return True, ""
+
+
+def validate_touchpad_config(tp: TouchpadConfig) -> Tuple[bool, str]:
+    """Validate TouchpadConfig parameters"""
+    for axis_name, axis in [('x', tp.x), ('y', tp.y), ('pressure', tp.pressure)]:
+        if axis.cc is not None and (axis.cc < 0 or axis.cc > 127):
+            return False, f"Invalid touchpad {axis_name} cc: {axis.cc}. Must be between 0 and 127"
+
+    return True, ""
+
+
+def validate_midi_config(midi: MidiConfig) -> Tuple[bool, str]:
+    """Validate MidiConfig parameters"""
+    if midi.channel < 0 or midi.channel > 15:
+        return False, f"Invalid MIDI channel: {midi.channel}. Must be between 0 and 15"
+
+    return True, ""
+
+
+def validate_full_config(config: FullConfig) -> Tuple[bool, List[str]]:
+    """
+    Validate all configuration sections
+
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+
+    valid, msg = validate_audio_config(config.audio)
+    if not valid:
+        errors.append(f"Audio: {msg}")
+
+    valid, msg = validate_keyboard_config(config.keyboard)
+    if not valid:
+        errors.append(f"Keyboard: {msg}")
+
+    valid, msg = validate_touchpad_config(config.touchpad)
+    if not valid:
+        errors.append(f"Touchpad: {msg}")
+
+    valid, msg = validate_midi_config(config.midi)
+    if not valid:
+        errors.append(f"MIDI: {msg}")
+
+    return len(errors) == 0, errors

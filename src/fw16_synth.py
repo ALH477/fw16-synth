@@ -28,9 +28,7 @@ import signal
 import argparse
 import logging
 import threading
-import json
 import glob
-import subprocess
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Callable, Tuple, Set, Any, Union
 from enum import IntEnum, Enum, auto
@@ -285,10 +283,10 @@ class SynthConfig:
     sample_rate: int = 48000
     buffer_size: int = 256
     soundfont: Optional[str] = None
-    
+
     # MIDI
     midi_channel: int = 0
-    
+
     # Keyboard
     base_octave: int = 4
     velocity_curve: str = "linear"
@@ -297,24 +295,24 @@ class SynthConfig:
     velocity_fixed: Optional[int] = None
     velocity_time_fast: float = 0.015
     velocity_time_slow: float = 0.200
-    
+
     # Touchpad
     touchpad_enabled: bool = True
     touchpad_smoothing: float = 0.85
-    
+
     # Modulation routing
     mod_routing: List[ModulationRouting] = field(default_factory=lambda: [
         ModulationRouting(ModSource.TOUCHPAD_X, ModDest.PITCH_BEND),
         ModulationRouting(ModSource.TOUCHPAD_Y, ModDest.FILTER_CUTOFF, invert=True),
         ModulationRouting(ModSource.TOUCHPAD_PRESSURE, ModDest.EXPRESSION),
     ])
-    
+
     pitch_bend_semitones: int = 2
-    
+
     # Presets
     presets: List[PresetConfig] = field(default_factory=lambda: [
         PresetConfig("Grand Piano", 0, hotkey=ecodes.KEY_F1),
-        PresetConfig("Electric Piano", 4, hotkey=ecodes.KEY_F2),
+        PresetConfig("Electric Piano",4, hotkey=ecodes.KEY_F2),
         PresetConfig("Drawbar Organ", 16, hotkey=ecodes.KEY_F3),
         PresetConfig("Nylon Guitar", 24, hotkey=ecodes.KEY_F4),
         PresetConfig("Synth Strings", 50, hotkey=ecodes.KEY_F5),
@@ -326,20 +324,104 @@ class SynthConfig:
         PresetConfig("Warm Pad", 89, hotkey=ecodes.KEY_F11),
         PresetConfig("Atmosphere", 99, hotkey=ecodes.KEY_F12),
     ])
-    
+
     # Display
     show_tui: bool = True
     refresh_rate: float = 30.0
-    
+
     # Features
     enable_arpeggiator: bool = True
     enable_transpose: bool = True
     enable_layer: bool = True
-    
+
     # MIDI Input (for FW16 Piano Keyboard Module and other USB MIDI devices)
     midi_input_enabled: bool = False
     midi_port: Optional[str] = None  # Port name substring or None for auto-detect
     midi_auto_connect: bool = True   # Auto-connect to FW16 module if found
+
+    def validate(self) -> Tuple[bool, str]:
+        """
+        Validate configuration values
+
+        Returns:
+            Tuple of (is_valid, error_message)
+            - is_valid: True if all values are valid
+            - error_message: Empty string if valid, description of first error otherwise
+        """
+        # Validate audio parameters
+        if not isinstance(self.audio_driver, AudioDriver):
+            return False, f"Invalid audio_driver: {self.audio_driver}. Must be one of {[d.value for d in AudioDriver]}"
+
+        if self.sample_rate <= 0 or self.sample_rate > 192000:
+            return False, f"Invalid sample_rate: {self.sample_rate}. Must be between 1 and 192000"
+
+        if self.buffer_size <= 0 or self.buffer_size > 8192:
+            return False, f"Invalid buffer_size: {self.buffer_size}. Must be between 1 and 8192"
+
+        # Validate MIDI parameters
+        if self.midi_channel < 0 or self.midi_channel > 15:
+            return False, f"Invalid midi_channel: {self.midi_channel}. Must be between 0 and 15"
+
+        # Validate keyboard parameters
+        if self.base_octave < 0 or self.base_octave > 8:
+            return False, f"Invalid base_octave: {self.base_octave}. Must be between 0 and 8"
+
+        if self.velocity_curve not in ["linear", "exponential", "logarithmic"]:
+            return False, f"Invalid velocity_curve: {self.velocity_curve}. Must be one of ['linear', 'exponential', 'logarithmic']"
+
+        if self.velocity_min < 0 or self.velocity_min > 127:
+            return False, f"Invalid velocity_min: {self.velocity_min}. Must be between 0 and 127"
+
+        if self.velocity_max < 0 or self.velocity_max > 127:
+            return False, f"Invalid velocity_max: {self.velocity_max}. Must be between 0 and 127"
+
+        if self.velocity_min > self.velocity_max:
+            return False, f"velocity_min ({self.velocity_min}) cannot be greater than velocity_max ({self.velocity_max})"
+
+        if self.velocity_fixed is not None:
+            if self.velocity_fixed < 0 or self.velocity_fixed > 127:
+                return False, f"Invalid velocity_fixed: {self.velocity_fixed}. Must be between 0 and 127"
+
+        if self.velocity_time_fast <= 0:
+            return False, f"Invalid velocity_time_fast: {self.velocity_time_fast}. Must be greater than 0"
+
+        if self.velocity_time_slow <= 0:
+            return False, f"Invalid velocity_time_slow: {self.velocity_time_slow}. Must be greater than 0"
+
+        if self.velocity_time_fast >= self.velocity_time_slow:
+            return False, f"velocity_time_fast ({self.velocity_time_fast}) must be less than velocity_time_slow ({self.velocity_time_slow})"
+
+        # Validate touchpad parameters
+        if self.touchpad_smoothing < 0 or self.touchpad_smoothing > 1.0:
+            return False, f"Invalid touchpad_smoothing: {self.touchpad_smoothing}. Must be between 0 and 1"
+
+        # Validate modulation routing
+        if not self.mod_routing:
+            return False, "mod_routing cannot be empty"
+
+        for i, routing in enumerate(self.mod_routing):
+            if not isinstance(routing.source, ModSource):
+                return False, f"mod_routing[{i}].source is invalid. Must be a ModSource enum value"
+
+            if not isinstance(routing.destination, ModDest):
+                return False, f"mod_routing[{i}].destination is invalid. Must be a ModDest enum value"
+
+            if routing.amount < 0:
+                return False, f"mod_routing[{i}].amount: {routing.amount}. Must be greater than or equal to 0"
+
+            if routing.center < 0 or routing.center > 1.0:
+                return False, f"mod_routing[{i}].center: {routing.center}. Must be between 0 and 1"
+
+        # Validate pitch bend
+        if self.pitch_bend_semitones < 1 or self.pitch_bend_semitones > 24:
+            return False, f"Invalid pitch_bend_semitones: {self.pitch_bend_semitones}. Must be between 1 and 24"
+
+        # Validate display parameters
+        if self.refresh_rate < 1.0 or self.refresh_rate > 120.0:
+            return False, f"Invalid refresh_rate: {self.refresh_rate}. Must be between 1 and 120 Hz"
+
+        # All validations passed
+        return True, ""
 
 
 # =============================================================================
@@ -406,6 +488,7 @@ class SoundFontManager:
     
     def _load_state(self):
         """Load favorites and recent from state file"""
+        import json
         try:
             if self.STATE_FILE.exists():
                 with open(self.STATE_FILE) as f:
@@ -417,6 +500,7 @@ class SoundFontManager:
     
     def _save_state(self):
         """Save favorites and recent to state file"""
+        import json
         try:
             self.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(self.STATE_FILE, 'w') as f:
