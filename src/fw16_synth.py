@@ -3538,6 +3538,7 @@ def main():
     debug = parser.add_argument_group('Debug')
     debug.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
     debug.add_argument('--log-file', metavar='PATH', help='Log to file')
+    debug.add_argument('--production', action='store_true', help='Enable production mode with glitch prevention and monitoring')
     
     args = parser.parse_args()
     
@@ -3590,6 +3591,25 @@ def main():
     )
     
     synth = FW16Synth(config)
+    
+    # Wrap in production controller if production mode enabled
+    if args.production:
+        try:
+            from .production.synth_controller import ProductionSynthController
+            from .production.glitch_integration import enhance_fw16_synth
+            
+            # Try to use production controller first
+            try:
+                synth = ProductionSynthController(synth, config)
+                log.info("Production mode enabled with comprehensive error handling")
+            except Exception as e:
+                log.warning(f"Production controller failed, using enhanced mode: {e}")
+                # Fall back to enhanced mode
+                enhance_fw16_synth(synth)
+                log.info("Enhanced mode enabled with glitch prevention")
+                
+        except ImportError:
+            log.warning("Production features not available, continuing with standard mode")
     
     def signal_handler(sig, frame):
         synth.stop()

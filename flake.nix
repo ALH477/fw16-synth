@@ -1,5 +1,5 @@
 {
-  description = "FW16 Synth v2.0 - Professional FluidSynth controller for Framework 16 | DeMoD LLC";
+  description = "FW16 Synth v2.1 - Professional FluidSynth controller for Framework 16 | DeMoD LLC";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -14,8 +14,9 @@
           config.allowUnfree = true;
         };
 
-        version = "2.0.0";
+        version = "2.1.0";
 
+        # Python environment with all dependencies
         pythonEnv = pkgs.python312.withPackages (ps: with ps; [
           evdev
           pyfluidsynth
@@ -65,7 +66,7 @@ SFREADME
           fluidsynth
         ];
 
-        # Main application package
+        # Main application package - updated for new src/ structure
         fw16-synth = pkgs.stdenv.mkDerivation {
           pname = "fw16-synth";
           inherit version;
@@ -80,14 +81,24 @@ SFREADME
           installPhase = ''
             runHook preInstall
             
-            mkdir -p $out/bin $out/share/fw16-synth $out/share/applications $out/share/soundfonts
+            mkdir -p $out/bin $out/share/fw16-synth $out/share/applications $out/share/soundfonts $out/lib/python3.12/site-packages/fw16_synth
+            
+            # Install main source code from src/ directory
+            cp -r src/* $out/lib/python3.12/site-packages/fw16_synth/ 2>/dev/null || true
             
             # Install main script
-            cp fw16_synth.py $out/share/fw16-synth/
+            cp src/fw16_synth.py $out/share/fw16-synth/
             chmod +x $out/share/fw16-synth/fw16_synth.py
             
+            # Install configuration and TUI modules
+            cp src/config.py $out/lib/python3.12/site-packages/fw16_synth/ 2>/dev/null || true
+            cp src/tui.py $out/lib/python3.12/site-packages/fw16_synth/ 2>/dev/null || true
+            
+            # Install production module
+            cp -r src/fw16_synth/production $out/lib/python3.12/site-packages/fw16_synth/ 2>/dev/null || true
+            
             # Install launcher script
-            cp launch.sh $out/share/fw16-synth/ || true
+            cp scripts/launch.sh $out/share/fw16-synth/ || true
             
             # Link bundled soundfonts
             for sf in ${bundledSoundfonts}/soundfonts/*; do
@@ -98,6 +109,7 @@ SFREADME
             makeWrapper ${pythonEnv}/bin/python3 $out/bin/fw16-synth \
               --add-flags "$out/share/fw16-synth/fw16_synth.py" \
               --prefix PATH : ${pkgs.lib.makeBinPath runtimeDeps} \
+              --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
               --set DEFAULT_SOUNDFONT "${soundfont-fluid}/share/soundfonts/FluidR3_GM.sf2" \
               --set BUNDLED_SOUNDFONTS "$out/share/soundfonts" \
               --set NIX_SOUNDFONT_FLUID "${soundfont-fluid}/share/soundfonts" \
@@ -154,7 +166,7 @@ EOF
           program = "${fw16-synth}/bin/fw16-synth";
         };
 
-        # Development shell
+        # Development shell - updated for new structure
         devShells.default = pkgs.mkShell {
           name = "fw16-synth-dev";
           
@@ -164,7 +176,7 @@ EOF
             soundfont-fluid
             soundfont-generaluser
             pipewire
-            pipewire.pulse
+            pulseaudio
             jack2
             alsa-utils
             evtest
@@ -178,6 +190,7 @@ EOF
             export DEFAULT_SOUNDFONT="${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM.sf2"
             export NIX_SOUNDFONT_FLUID="${pkgs.soundfont-fluid}/share/soundfonts"
             export NIX_SOUNDFONT_GENERALUSER="${pkgs.soundfont-generaluser}/share/soundfonts"
+            export PYTHONPATH="${self}/src:$PYTHONPATH"
             
             echo ""
             echo -e "\033[38;5;44m╔══════════════════════════════════════════════════════════════════════════╗\033[0m"
@@ -185,9 +198,10 @@ EOF
             echo -e "\033[38;5;44m╠══════════════════════════════════════════════════════════════════════════╣\033[0m"
             echo -e "\033[38;5;44m║\033[0m  \033[38;5;135mDeMoD LLC\033[0m « Design ≠ Marketing »                                       \033[38;5;44m║\033[0m"
             echo -e "\033[38;5;44m╠══════════════════════════════════════════════════════════════════════════╣\033[0m"
-            echo -e "\033[38;5;44m║\033[0m  Run:       \033[1mpython fw16_synth.py\033[0m                                          \033[38;5;44m║\033[0m"
+            echo -e "\033[38;5;44m║\033[0m  Run:       \033[1mpython src/fw16_synth.py\033[0m                                     \033[38;5;44m║\033[0m"
             echo -e "\033[38;5;44m║\033[0m  Test:      \033[1mevtest\033[0m                                                        \033[38;5;44m║\033[0m"
-            echo -e "\033[38;5;44m║\033[0m  Format:    \033[1mblack fw16_synth.py\033[0m                                           \033[38;5;44m║\033[0m"
+            echo -e "\033[38;5;44m║\033[0m  Format:    \033[1mblack src/\033[0m                                                    \033[38;5;44m║\033[0m"
+            echo -e "\033[38;5;44m║\033[0m  Package:   \033[1mnix build\033[0m                                                     \033[38;5;44m║\033[0m"
             echo -e "\033[38;5;44m╠══════════════════════════════════════════════════════════════════════════╣\033[0m"
             echo -e "\033[38;5;44m║\033[0m  Features:  \033[38;5;135m[Tab]\033[0m Browse  \033[38;5;135m[D]\033[0m Download  \033[38;5;135m[L]\033[0m Layer  \033[38;5;135m[A]\033[0m Arpeggiator     \033[38;5;44m║\033[0m"
             echo -e "\033[38;5;44m╠══════════════════════════════════════════════════════════════════════════╣\033[0m"
@@ -203,7 +217,7 @@ EOF
         };
       }
     ) // {
-      # NixOS Module
+      # NixOS Module - updated for new structure
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.programs.fw16-synth;
@@ -272,7 +286,7 @@ EOF
           };
         };
 
-      # Home-Manager Module  
+      # Home-Manager Module - updated for new structure
       homeManagerModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.programs.fw16-synth;
